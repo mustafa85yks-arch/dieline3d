@@ -1,0 +1,2072 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dieline 3D</title>
+<style>
+:root{
+  --bg:#f4f3ef; --panel:#ffffff; --ink:#1d1d1b; --muted:#6b6a64; --line:#dddbd3;
+  --accent:#c2410c; --cut:#d4145a; --crease:#15803d; --sel:#2563eb;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+  font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 12px;
+  background:var(--panel);border-bottom:1px solid var(--line)}
+header h1{font-size:15px;margin:0 12px 0 0;letter-spacing:.02em}
+button,select,input{font:inherit}
+button,.btn{background:#fff;border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;color:var(--ink)}
+button:hover,.btn:hover{border-color:var(--muted)}
+button.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+button.on{background:#e8eefc;border-color:var(--sel);color:#1e3a8a}
+button:disabled{opacity:.45;cursor:default}
+#status{color:var(--muted);margin-left:auto;font-size:12px;max-width:45%;text-align:right}
+#status.err{color:#b91c1c}
+main{display:grid;grid-template-columns:minmax(320px,38%) 1fr;grid-template-rows:minmax(0,1fr);height:calc(100% - 49px)}
+#left{overflow:auto;border-right:1px solid var(--line);background:var(--panel)}
+#left section,#left details{padding:10px 12px;border-bottom:1px solid var(--line)}
+#left h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 8px}
+#left summary{cursor:pointer;list-style:none;display:flex;gap:8px;align-items:baseline}
+#left summary::-webkit-details-marker{display:none}
+#left summary h2{margin:0}
+#left summary::after{content:"▸";color:var(--muted);margin-left:auto}
+#left details[open] summary::after{content:"▾"}
+#left details[open] summary{margin-bottom:8px}
+.sum{color:var(--muted);font-size:12px}
+#svgwrap{background:#fafaf7;border:1px solid var(--line);border-radius:6px}
+#svg2d{width:100%;height:340px;display:block}
+#svg2d .panel{cursor:pointer}
+#svg2d .lbl{fill:#1d1d1b;pointer-events:none;text-anchor:middle;dominant-baseline:middle;font-weight:600}
+table{width:100%;border-collapse:collapse}
+td,th{padding:3px 4px;border-bottom:1px solid #eee;text-align:left;white-space:nowrap}
+th{font-weight:600;color:var(--muted);font-size:11px}
+td input[type=number]{width:58px}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:middle;border:1px solid #0002}
+tr.hl td{background:#eef4ff}
+tr.sel td{background:#fde7d6}
+#svg2d .panel.sel{stroke:var(--accent);stroke-width:2px}
+#svg2d .basebtn{cursor:pointer}
+#svg2d .basebtn rect{fill:#1d1d1b;opacity:.85}
+#svg2d .basebtn text{fill:#fff;font-weight:600;pointer-events:none}
+#svg2d .basebtn:hover rect{fill:var(--accent);opacity:1}
+#right{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0}
+#view{flex:1;min-height:0;position:relative}
+#view canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
+#drop{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:var(--muted);font-size:15px;pointer-events:none;text-align:center;padding:20px}
+#drop.over{background:#c2410c14;outline:2px dashed var(--accent);outline-offset:-10px}
+#timeline{display:flex;gap:10px;align-items:center;padding:8px 12px;background:var(--panel);border-top:1px solid var(--line);flex-wrap:wrap}
+#timeline input[type=range]{flex:1;min-width:160px}
+#info{font-size:12px;color:var(--muted)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+.hint{color:var(--muted);font-size:12px;margin:6px 0 0}
+#expName{width:180px}
+@media (max-width:800px){
+  main{grid-template-columns:1fr;grid-template-rows:auto 60vh;height:auto}
+  #right{height:70vh}
+}
+</style>
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+</head>
+<body>
+<header>
+  <h1>Dieline 3D</h1>
+  <label class="btn">AI / PDF aç<input id="file" type="file" accept=".pdf,.ai" hidden></label>
+  <button id="btnAi" disabled title="Bu dosyayı Illustrator'da aç. Kaydedince 3D kendiliğinden güncellenir.">Illustrator'da aç</button>
+  <button id="btnReload" disabled title="Dosyayı diskten yeniden oku; açılar, roller ve duruş korunur">Güncelle</button>
+  <button id="btnPin" class="primary" disabled title="Rolleri, tabanı, açıları, duruşu ve kartonu bu bıçak için kalıcı yap. Aynı bıçak tekrar açılınca kendiliğinden gelir.">Ayarları sabitle</button>
+  <button id="btnUnpin" disabled title="Bu bıçağın sabit ayarını sil, otomatik ayarlara dön">Varsayılana dön</button>
+  <button id="btnSave" disabled>Ayarları kaydet</button>
+  <label class="btn">Ayar yükle<input id="fileJson" type="file" accept=".json" hidden></label>
+  <span id="status">Bir AI/PDF dieline dosyasını sağ tarafa sürükle.</span>
+</header>
+<main>
+  <div id="left">
+    <section>
+      <h2>Açınım</h2>
+      <div id="svgwrap"><svg id="svg2d"></svg></div>
+      <p class="hint"><span style="color:var(--cut)">━ kesim</span> · <span style="color:var(--crease)">┅ kat</span>
+        · kalın çerçeveli panel: taban (kutu ona göre katlanır)</p>
+    </section>
+    <details id="secGroups">
+      <summary><h2>Çizgi grupları</h2><span class="sum" id="sumGroups"></span></summary>
+      <table id="tblGroups"></table>
+      <p class="hint">Kural: önce spot adı (KESIM, KAT, BICAK, cutting, fold…), spot yoksa renk: kırmızı kesim, yeşil kat. Geri kalan her şey yok sayılır. Kesim ve kat aynı renkteyse araç ayırmaz: katları ayrı renge al ya da burada elle düzelt.</p>
+    </details>
+    <details id="secHinges">
+      <summary><h2>Katlar</h2><span class="sum" id="sumHinges"></span></summary>
+      <div class="row"><label>Taban <select id="selBase"></select></label>
+        <span class="hint" style="margin:0">Otomatik seçim hemen hep doğrudur; sadece kutu yanlış katlanıyorsa değiştir.</span></div>
+      <table id="tblHinges"></table>
+      <p class="hint">Açı 0° düzdür. İçe katlama baskılı yüzü dışarıda bırakır. Aynı <b>adım</b> numarasındaki katlar birlikte katlanır.</p>
+    </details>
+    <section>
+      <h2>Görünüm</h2>
+      <div class="row">
+        <label>Karton <select id="selCard">
+          <option value="#ffffff">Beyaz</option>
+          <option value="#c69c6d">Kraft</option>
+          <option value="#9a9a96">Gri</option></select></label>
+        <label id="rowFoil" style="display:none" title="Dosyada VARAK / foil adlı spot ya da katman bulundu">Varak <select id="selFoil">
+          <option value="altin">Altın</option>
+          <option value="gumus">Gümüş</option>
+          <option value="bakir">Bakır</option>
+          <option value="kapali">Kapalı (düz baskı)</option></select></label>
+      </div>
+      <p class="hint" style="margin:0 0 8px">3D'de bir parçaya çift tıkla: açılır, tekrar çift tıkla: kapanır. Kenar çizgileri <b>Bıçak izi</b> ile görünür.</p>
+      <div class="row">
+        <button id="btnPng" disabled>PNG kaydet</button>
+        <button id="btnVideo" disabled>Animasyonu video olarak kaydet</button>
+      </div>
+    </section>
+    <section>
+      <h2>Müşteriye gönder</h2>
+      <div class="row">
+        <input id="expName" type="text" placeholder="Ürün adı">
+        <select id="expLang"><option value="tr">Türkçe</option><option value="en">English</option></select>
+        <button id="btnExport" disabled>Müşteri dosyası oluştur</button>
+      </div>
+      <p class="hint">Kutuyu sağ alttaki ⟲ Devir / ↻ Çevir ile hangi duruşa getirirsen müşteri ilk onu görür.
+        Tek bir HTML dosyası üretir. Müşteri çift tıklayıp açar, kutuyu döndürür, katlanmayı izler.
+        Dosyada sadece tasarımın görüntüsü var, PDF ve düzenleme araçları yok.</p>
+    </section>
+  </div>
+  <div id="right">
+    <div id="view"><div id="drop">AI / PDF dosyasını buraya bırak</div></div>
+    <div id="timeline">
+      <button id="btnPlay" class="primary" disabled>▶ Oynat</button>
+      <input id="rngT" type="range" min="0" max="1000" value="1000" disabled>
+      <label>Süre <select id="selDur"><option value="3">3 sn</option><option value="5" selected>5 sn</option><option value="8">8 sn</option></select></label>
+      <button id="btnFlat" disabled>Açık hâli</button>
+      <button id="btnDie" disabled>Bıçak izi</button>
+
+      <span id="info"></span>
+    </div>
+  </div>
+</main>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
+
+const OPS = pdfjsLib.OPS;
+const PT2MM = 25.4 / 72;
+const $ = id => document.getElementById(id);
+const status = (msg, err) => { const s = $('status'); s.textContent = msg; s.className = err ? 'err' : ''; };
+
+const CUT_RE = /kes[iı]m|cut|die|b[iı]çak|bicak|stanz|kontur|contour|d[ée]coupe/i;
+const CREASE_RE = /^kat|\bkat\b|katlama|b[iı]ğa|biga|pilyaj|pliaj|crease|fold|rill|\bnut\b|rainage/i;
+// varak (hot foil): spot ya da katman adı. Rengi addan tahmin edilir, adında renk yoksa altın (Mustafa'nın kararı)
+const FOIL_RE = /varak|foil|folie|yald[iı]z|hot.?stamp|sıcak baskı|shiny/i;
+const FOIL_COLORS = { altin: '#f7c440', gumus: '#eeeef3', bakir: '#f0a078' };
+const foilDefault = names => { const n = names.join(' ');
+  return /silver|gümüş|gumus|silber|argent/i.test(n) ? 'gumus' : /copper|bakır|bakir|kupfer/i.test(n) ? 'bakir' : 'altin'; };
+// spot adı bunlardan biriyse dieline değildir ama kesim/kat da değildir (perforasyon, tutkal, lak…)
+const OTHER_RE = /perf|glue|tutkal|yap[iı][sş]t[iı]rma|lak|varnish|varak|foil|emboss|gofre|uv|white|beyaz|blanc|pantone/i;
+
+const S = {   // uygulama durumu
+  name: '', pdf: null, page: null, occ: null,
+  paths: [], groups: [], roles: {},        // roles: grupAnahtarı → 'kesim' | 'kat' | 'yok'
+  panels: [], hinges: [], baseId: null, bbox: null,
+  settings: {},                            // menteşe anahtarı → {angle, dir, step}
+  t: 1,
+};
+if (new URLSearchParams(location.search).has('debug')) window.dbg = { S };   // test/hata ayıklama için
+
+// ───────────────────────── 1. PDF okuma ─────────────────────────
+function hexOf(args) {
+  if (typeof args[0] === 'string') return args[0].toLowerCase();
+  const [r, g, b] = args.map(v => Math.round(v > 1 ? v : v * 255));
+  return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
+}
+
+function occGroups(occ) {
+  if (!occ) return [];
+  if (typeof occ.getGroups === 'function') {
+    const g = occ.getGroups();
+    return g ? Object.entries(g) : [];
+  }
+  return occ[Symbol.iterator] ? [...occ] : [];
+}
+
+async function parsePdf(buf) {
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const page = await pdf.getPage(1);
+  const occ = await pdf.getOptionalContentConfig();
+  const vp = page.getViewport({ scale: 1 });
+  const ol = await page.getOperatorList();
+  const layerName = id => { try { return occ.getGroup(id)?.name || null; } catch { return null; } };
+
+  const T = pdfjsLib.Util.transform;
+  const ap = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+  let st = { ctm: vp.transform.slice(), color: '#000000', dash: false };
+  const stack = [], ocStack = [], paths = [];
+  let sub = [];        // mevcut path: [{pts, closed, nodes, curved}]
+  let cur = null;      // mevcut alt path
+  let pen = [0, 0], start = [0, 0];
+  let warnedFormat = false;
+
+  const newSub = (x, y) => { cur = { pts: [ap(st.ctm, x, y)], closed: false, nodes: 1, curved: false }; sub.push(cur); pen = [x, y]; start = [x, y]; };
+  const lineTo = (x, y) => { if (!cur) newSub(pen[0], pen[1]); cur.pts.push(ap(st.ctm, x, y)); cur.nodes++; pen = [x, y]; };
+  const bez = (x1, y1, x2, y2, x3, y3) => {
+    if (!cur) newSub(pen[0], pen[1]);
+    const [x0, y0] = pen, N = 12;
+    for (let i = 1; i <= N; i++) {
+      const t = i / N, u = 1 - t;
+      const x = u*u*u*x0 + 3*u*u*t*x1 + 3*u*t*t*x2 + t*t*t*x3;
+      const y = u*u*u*y0 + 3*u*u*t*y1 + 3*u*t*t*y2 + t*t*t*y3;
+      cur.pts.push(ap(st.ctm, x, y));
+    }
+    cur.nodes++; cur.curved = true; pen = [x3, y3];
+  };
+  const close = () => { if (cur) { cur.closed = true; } pen = start.slice(); cur = null; };
+  const layer = () => { for (let i = ocStack.length - 1; i >= 0; i--) if (ocStack[i]) return ocStack[i]; return ''; };
+  const emit = () => {
+    for (const s of sub) if (s.pts.length >= 2)
+      paths.push({ ...s, color: st.color, dash: st.dash, layer: layer() });
+  };
+  const STROKE = new Set([OPS.stroke, OPS.closeStroke, OPS.fillStroke, OPS.eoFillStroke, OPS.closeFillStroke, OPS.closeEOFillStroke]);
+  const ENDPATH = new Set([OPS.fill, OPS.eoFill, OPS.endPath, ...STROKE]);
+
+  for (let i = 0; i < ol.fnArray.length; i++) {
+    const fn = ol.fnArray[i], a = ol.argsArray[i];
+    switch (fn) {
+      case OPS.save: stack.push({ ...st, ctm: st.ctm.slice() }); break;
+      case OPS.restore: if (stack.length) st = stack.pop(); break;
+      case OPS.transform: st.ctm = T(st.ctm, a); break;
+      case OPS.paintFormXObjectBegin:
+        stack.push({ ...st, ctm: st.ctm.slice() });
+        if (a[0]) st.ctm = T(st.ctm, a[0]);
+        break;
+      case OPS.paintFormXObjectEnd: if (stack.length) st = stack.pop(); break;
+      case OPS.setStrokeRGBColor: st.color = hexOf(a); break;
+      case OPS.setDash: st.dash = Array.isArray(a[0]) ? a[0].length > 0 : !!(a[0] && a[0].length); break;
+      case OPS.setGState:
+        for (const [k, v] of (a[0] || [])) if (k === 'D') st.dash = !!(v && v[0] && v[0].length);
+        break;
+      case OPS.beginMarkedContentProps:
+        ocStack.push(a[0] === 'OC' && a[1] ? (a[1].id ? layerName(a[1].id) : null) : null); break;
+      case OPS.beginMarkedContent: ocStack.push(null); break;
+      case OPS.endMarkedContent: ocStack.pop(); break;
+      case OPS.constructPath: {
+        const ops = a[0], c = a[1];
+        if (!Array.isArray(ops)) { if (!warnedFormat) { console.warn('Bilinmeyen constructPath biçimi', a); warnedFormat = true; } break; }
+        let k = 0;
+        for (const op of ops) {
+          switch (op) {
+            case OPS.moveTo: newSub(c[k], c[k + 1]); k += 2; break;
+            case OPS.lineTo: lineTo(c[k], c[k + 1]); k += 2; break;
+            case OPS.curveTo: bez(c[k], c[k+1], c[k+2], c[k+3], c[k+4], c[k+5]); k += 6; break;
+            case OPS.curveTo2: bez(pen[0], pen[1], c[k], c[k+1], c[k+2], c[k+3]); k += 4; break;
+            case OPS.curveTo3: bez(c[k], c[k+1], c[k+2], c[k+3], c[k+2], c[k+3]); k += 4; break;
+            case OPS.closePath: close(); break;
+            case OPS.rectangle: {
+              const [x, y, w, h] = [c[k], c[k+1], c[k+2], c[k+3]]; k += 4;
+              newSub(x, y); lineTo(x + w, y); lineTo(x + w, y + h); lineTo(x, y + h); close();
+              break;
+            }
+          }
+        }
+        break;
+      }
+      default:
+        if (ENDPATH.has(fn)) {
+          if (STROKE.has(fn)) {
+            if (fn === OPS.closeStroke || fn === OPS.closeFillStroke || fn === OPS.closeEOFillStroke) for (const s of sub) s.closed = true;
+            emit();
+          }
+          sub = []; cur = null;
+        }
+    }
+  }
+  // kapalı path'lerin son noktasını başa bağla
+  for (const p of paths) {
+    const f = p.pts[0], l = p.pts[p.pts.length - 1];
+    if (p.closed && Math.hypot(f[0] - l[0], f[1] - l[1]) > 1e-6) p.pts.push(f.slice());
+  }
+  return { pdf, page, occ, paths, vp };
+}
+
+// Spot renk adları: pdf.js her rengi RGB'ye çevirip adı atıyor. PDF'teki Separation tanımlarını
+// ham metinden okuyup her spotun %100 tonunu pdf.js'e minik bir PDF'le yeniden çevirtiyoruz;
+// çıkan RGB, çizimdeki stroke rengiyle birebir aynı olur. Böylece renk → spot adı eşleşir.
+async function spotColors(buf) {
+  const bytes = new Uint8Array(buf);
+  const texts = [new TextDecoder('latin1').decode(bytes)];
+  // sıkıştırılmış nesne akışları (ObjStm) içindeki tanımlar
+  const re = /\/Type\s*\/ObjStm/g; let m;
+  while ((m = re.exec(texts[0]))) {
+    const a = texts[0].indexOf('stream', m.index), b = texts[0].indexOf('endstream', a);
+    if (a < 0 || b < 0) continue;
+    let st = a + 6; if (bytes[st] === 13) st++; if (bytes[st] === 10) st++;
+    try {
+      const ds = new Blob([bytes.slice(st, b)]).stream().pipeThrough(new DecompressionStream('deflate'));
+      texts.push(new TextDecoder('latin1').decode(await new Response(ds).arrayBuffer()));
+    } catch {}
+  }
+  const all = texts.join('\n');
+  const objText = (n, g) => { const r = new RegExp(`(?:^|\\s)${n}\\s+${g}\\s+obj\\b([\\s\\S]*?)endobj`).exec(all); return r ? r[1] : ''; };
+  const defs = new Map();
+  // alternatif uzay: Device* ya da nesne referansı (Lab, ICCBased) — referansın metni aynen mini PDF'e kopyalanır
+  const sre = /\[\s*\/Separation\s*\/([^\s\/\[\]<>()]+)\s*(\/Device(?:CMYK|RGB|Gray)|\d+\s+\d+\s+R)\s*(\d+\s+\d+\s+R|<<[\s\S]*?>>)/g;
+  const deref = t => { const r = /^(\d+)\s+(\d+)\s+R$/.exec(t.trim()); return r ? objText(r[1], r[2]).trim() : t; };
+  while ((m = sre.exec(all))) {
+    const name = m[1].replace(/#([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+    const name8 = (() => { try { return decodeURIComponent(escape(name)); } catch { return name; } })();
+    let fn = m[3];
+    if (/R$/.test(fn)) { const [n, g] = fn.split(/\s+/); fn = objText(n, g); }
+    if (!/\/FunctionType\s*2/.test(fn)) continue;          // sadece üstel (Illustrator'ın yazdığı) fonksiyon
+    const c1 = /\/C1\s*\[([^\]]*)\]/.exec(fn); if (!c1) continue;
+    const v = c1[1].trim().split(/\s+/).map(Number);
+    let cs = m[2].startsWith('/') ? m[2] : deref(m[2]);
+    // ICCBased akışı mini PDF'e taşınamaz: bileşen sayısına göre Device karşılığını kullan (pdf.js de öyle yapar)
+    if (/ICCBased/.test(cs)) { const ic = deref((/ICCBased\s+(\d+\s+\d+\s+R)/.exec(cs) || [])[1] || ''); const n = +((/\/N\s+(\d)/.exec(ic) || [])[1] || v.length); cs = n === 4 ? '/DeviceCMYK' : n === 1 ? '/DeviceGray' : '/DeviceRGB'; }
+    if (!cs || /stream/.test(cs)) continue;
+    const key = cs + ' ' + v.join(' ');
+    if (!defs.has(key)) defs.set(key, { cs, v, names: new Set() });
+    defs.get(key).names.add(name8);
+  }
+  const list = [...defs.values()];
+  if (!list.length) return new Map();
+  // her tanım için bir çizgi çizen minik PDF → pdf.js aynı dönüşümü yapar
+  const content = list.map((d, i) => `/A${i} CS ${d.v.join(' ')} SC 0 0 m 1 1 l S`).join('\n');
+  const csRes = list.map((d, i) => `/A${i} ${d.cs.startsWith('/') ? d.cs : d.cs}`).join(' ');
+  const objs = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources << /ColorSpace << ${csRes} >> >> /Contents 4 0 R >>`,
+    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`];
+  let pdf = '%PDF-1.4\n'; const offs = [];
+  objs.forEach((o, i) => { offs.push(pdf.length); pdf += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + offs.map(o => String(o).padStart(10, '0') + ' 00000 n \n').join('') +
+    `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  const doc = await pdfjsLib.getDocument({ data: new TextEncoder().encode(pdf) }).promise;
+  const ol = await (await doc.getPage(1)).getOperatorList();
+  const out = new Map(); let i = 0;
+  for (let k = 0; k < ol.fnArray.length; k++) if (ol.fnArray[k] === OPS.setStrokeRGBColor) {
+    const d = list[i++]; if (!d) break;
+    const hex = hexOf(ol.argsArray[k]);
+    if (!out.has(hex)) out.set(hex, new Set());
+    for (const n of d.names) out.get(hex).add(n);
+  }
+  doc.destroy();
+  return new Map([...out].map(([h, s]) => [h, [...s]]));
+}
+
+// Rol kuralı: ayrımı operatör renkle yapar, araç tahmin yürütmez.
+// 1) spot adı (KESIM / KAT / BICAK / cutting / fold …)  2) spot yoksa renk: kırmızı kesim, yeşil kat.
+// Tanınmayan her şey "yok": baskıdaki yazı, ölçü oku, çerçeve dieline sayılmaz.
+function nameRole(n) {
+  if (CREASE_RE.test(n)) return 'kat';
+  if (CUT_RE.test(n)) return 'kesim';
+  return null;
+}
+function buildGroups(paths, spots = new Map()) {
+  const layers = [...new Set(paths.map(p => p.layer))];
+  const dieLayers = layers.filter(l => l && (CUT_RE.test(l) || CREASE_RE.test(l)));
+  const map = new Map();
+  for (const p of paths) {
+    const key = `${p.layer}|${p.color}|${p.dash ? 1 : 0}`;
+    if (!map.has(key)) map.set(key, { key, layer: p.layer, color: p.color, dash: p.dash, paths: [], spot: (spots.get(p.color) || []).join(', ') });
+    map.get(key).paths.push(p);
+    p.group = key;
+  }
+  const groups = [...map.values()];
+  const roles = {}, why = {};
+  const byName = g => {
+    const names = spots.get(g.color) || [];
+    const rs = new Set(names.map(nameRole).filter(Boolean));
+    if (rs.size < 2) return rs.size ? [...rs][0] : null;
+    // aynı renkte hem kesim hem kat adlı spot: standart ad (KESIM / KAT / BICAK / PILYAJ) kazanır
+    const exact = new Set(names.map(n => /^(kesim|b[iı]çak|bicak)$/i.test(n.trim()) ? 'kesim' : /^(kat|pilyaj)$/i.test(n.trim()) ? 'kat' : null).filter(Boolean));
+    return exact.size === 1 ? [...exact][0] : 'çakışma';
+  };
+  const named = groups.some(g => ['kesim', 'kat'].includes(byName(g)));
+  for (const g of groups) {
+    const [r, gg, b] = [1, 3, 5].map(i => parseInt(g.color.substr(i, 2), 16));
+    const nr = byName(g);
+    let role = 'yok', w = '';
+    if (dieLayers.length && !dieLayers.includes(g.layer)) w = 'dieline katmanında değil';
+    else if (nr === 'kesim' || nr === 'kat') { role = nr; w = 'spot adı'; }
+    else if (nr === 'çakışma') { role = 'kesim'; w = 'aynı renkte hem kesim hem kat spotu var'; }
+    else if (named) w = 'dieline spotu değil';
+    else if (Math.min(r, gg, b) > 200) w = 'çok açık renk';
+    else if (r >= 170 && gg <= 120 && b <= 120) { role = 'kesim'; w = 'kırmızı'; }
+    else if (gg >= 120 && gg > r + 50 && gg > b + 30) { role = 'kat'; w = 'yeşil'; }
+    else if (CREASE_RE.test(g.layer)) { role = 'kat'; w = 'katman adı'; }
+    else w = (spots.get(g.color) || []).length ? 'dieline spotu değil' : 'kırmızı/yeşil değil';
+    roles[g.key] = role; why[g.key] = w;
+  }
+  return { groups, roles, why };
+}
+
+// ───────────────────────── 2. Paneller (düzlemsel yüzler) ─────────────────────────
+function buildTopology(paths, roles) {
+  const TOL = 0.6;  // pt ≈ 0.2 mm
+  const segs = [];
+  for (const p of paths) {
+    const role = roles[p.group];
+    if (role !== 'kesim' && role !== 'kat') continue;
+    for (let i = 0; i + 1 < p.pts.length; i++) {
+      const a = p.pts[i], b = p.pts[i + 1];
+      if (Math.hypot(b[0] - a[0], b[1] - a[1]) > 1e-3) segs.push({ a, b, type: role, ts: [0, 1] });
+    }
+  }
+  if (!segs.length) return null;
+
+  // Kat çizgileri çoğu dieline'da kesimden 1–3 mm önce bilerek bitirilir. Boşta kalan bir kat ucunu
+  // kendi doğrultusunda en fazla 4 mm uzat; o mesafede bir çizgiye çarpıyorsa oraya kadar çek.
+  const EXT = 4 / PT2MM;
+  const nearAny = (p, self) => segs.some(r => {
+    if (r === self) return false;
+    const dx = r.b[0] - r.a[0], dy = r.b[1] - r.a[1], L2 = dx * dx + dy * dy || 1e-9;
+    const t = Math.max(0, Math.min(1, ((p[0] - r.a[0]) * dx + (p[1] - r.a[1]) * dy) / L2));
+    return Math.hypot(p[0] - r.a[0] - t * dx, p[1] - r.a[1] - t * dy) < TOL;
+  });
+  const castRay = (p, dir, self) => {
+    let best = null;
+    for (const r of segs) {
+      if (r === self) continue;
+      const ex = r.b[0] - r.a[0], ey = r.b[1] - r.a[1], den = dir[0] * ey - dir[1] * ex;
+      if (Math.abs(den) < 1e-9) continue;
+      const qx = r.a[0] - p[0], qy = r.a[1] - p[1];
+      const t = (qx * ey - qy * ex) / den, u = (qx * dir[1] - qy * dir[0]) / den;
+      if (t > 1e-6 && t <= EXT && u >= -1e-6 && u <= 1 + 1e-6 && (!best || t < best)) best = t;
+    }
+    return best;
+  };
+  for (const sg of segs) {
+    if (sg.type !== 'kat') continue;
+    const L = Math.hypot(sg.b[0] - sg.a[0], sg.b[1] - sg.a[1]);
+    const d = [(sg.b[0] - sg.a[0]) / L, (sg.b[1] - sg.a[1]) / L];
+    for (const [end, dir] of [['b', d], ['a', [-d[0], -d[1]]]]) {
+      const p = sg[end];
+      if (nearAny(p, sg)) continue;
+      const t = castRay(p, dir, sg);
+      if (t) sg[end] = [p[0] + dir[0] * t, p[1] + dir[1] * t];
+    }
+  }
+
+  // kesişim + T-bağlantı noktalarında böl
+  const bb = s => [Math.min(s.a[0], s.b[0]) - TOL, Math.min(s.a[1], s.b[1]) - TOL, Math.max(s.a[0], s.b[0]) + TOL, Math.max(s.a[1], s.b[1]) + TOL];
+  for (const s of segs) s.box = bb(s);
+  const projT = (s, p) => {
+    const dx = s.b[0] - s.a[0], dy = s.b[1] - s.a[1], L2 = dx * dx + dy * dy;
+    const t = ((p[0] - s.a[0]) * dx + (p[1] - s.a[1]) * dy) / L2;
+    const qx = s.a[0] + t * dx, qy = s.a[1] + t * dy;
+    return { t, d: Math.hypot(p[0] - qx, p[1] - qy), L: Math.sqrt(L2) };
+  };
+  for (let i = 0; i < segs.length; i++) {
+    const s = segs[i];
+    for (let j = i + 1; j < segs.length; j++) {
+      const r = segs[j];
+      if (s.box[0] > r.box[2] || r.box[0] > s.box[2] || s.box[1] > r.box[3] || r.box[1] > s.box[3]) continue;
+      // uç noktası diğer segmentin üstünde mi
+      for (const [x, y] of [[s, r], [r, s]]) for (const p of [y.a, y.b]) {
+        const { t, d, L } = projT(x, p);
+        if (d < TOL && t * L > TOL && (1 - t) * L > TOL) x.ts.push(t);
+      }
+      // gerçek kesişim
+      const d1x = s.b[0] - s.a[0], d1y = s.b[1] - s.a[1], d2x = r.b[0] - r.a[0], d2y = r.b[1] - r.a[1];
+      const den = d1x * d2y - d1y * d2x;
+      if (Math.abs(den) < 1e-9) continue;
+      const ex = r.a[0] - s.a[0], ey = r.a[1] - s.a[1];
+      const t = (ex * d2y - ey * d2x) / den, u = (ex * d1y - ey * d1x) / den;
+      if (t > 1e-6 && t < 1 - 1e-6 && u > 1e-6 && u < 1 - 1e-6) { s.ts.push(t); r.ts.push(u); }
+    }
+  }
+
+  // noktaları yakala (snap), kenarları oluştur
+  const verts = [], cell = new Map();
+  const ck = (x, y) => `${Math.floor(x / TOL)},${Math.floor(y / TOL)}`;
+  const vid = (x, y) => {
+    const cx = Math.floor(x / TOL), cy = Math.floor(y / TOL);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+      const l = cell.get(`${cx + dx},${cy + dy}`);
+      if (l) for (const id of l) if (Math.hypot(verts[id][0] - x, verts[id][1] - y) < TOL) return id;
+    }
+    const id = verts.length; verts.push([x, y]);
+    const k = ck(x, y); if (!cell.has(k)) cell.set(k, []); cell.get(k).push(id);
+    return id;
+  };
+  const edgeMap = new Map();
+  for (const s of segs) {
+    const ts = [...new Set(s.ts)].sort((a, b) => a - b);
+    let prev = vid(s.a[0], s.a[1]);
+    for (let i = 1; i < ts.length; i++) {
+      const t = ts[i];
+      const v = vid(s.a[0] + t * (s.b[0] - s.a[0]), s.a[1] + t * (s.b[1] - s.a[1]));
+      if (v !== prev) {
+        const k = prev < v ? `${prev}-${v}` : `${v}-${prev}`;
+        const e = edgeMap.get(k);
+        if (!e) edgeMap.set(k, { u: prev, v, type: s.type });
+        else if (s.type === 'kesim') e.type = 'kesim';
+      }
+      prev = v;
+    }
+  }
+  let edges = [...edgeMap.values()];
+
+  // sarkan kenarları buda (tek uçlu yarım kat izleri, çentikler)
+  for (;;) {
+    const deg = new Array(verts.length).fill(0);
+    for (const e of edges) { deg[e.u]++; deg[e.v]++; }
+    const kept = edges.filter(e => deg[e.u] > 1 && deg[e.v] > 1);
+    if (kept.length === edges.length) break;
+    edges = kept;
+  }
+  if (!edges.length) return null;
+
+  // yarım kenarlar
+  const he = [];  // {from,to,edge}
+  edges.forEach((e, i) => { he.push({ from: e.u, to: e.v, edge: i }); he.push({ from: e.v, to: e.u, edge: i }); });
+  const out = new Map();
+  he.forEach((h, i) => {
+    h.ang = Math.atan2(verts[h.to][1] - verts[h.from][1], verts[h.to][0] - verts[h.from][0]);
+    if (!out.has(h.from)) out.set(h.from, []);
+    out.get(h.from).push(i);
+  });
+  for (const l of out.values()) l.sort((a, b) => he[a].ang - he[b].ang);
+  const next = i => {
+    const l = out.get(he[i].to), tw = i ^ 1, k = l.indexOf(tw);
+    return l[(k - 1 + l.length) % l.length];
+  };
+
+  // yüzleri izle
+  const faceOf = new Array(he.length).fill(-1), faces = [];
+  for (let i = 0; i < he.length; i++) {
+    if (faceOf[i] !== -1) continue;
+    const loop = []; let j = i, guard = 0;
+    while (faceOf[j] === -1 && guard++ < 100000) { faceOf[j] = faces.length; loop.push(j); j = next(j); }
+    const pts = loop.map(h => verts[he[h].from]);
+    let A = 0;
+    for (let k = 0; k < pts.length; k++) { const p = pts[k], q = pts[(k + 1) % pts.length]; A += p[0] * q[1] - q[0] * p[1]; }
+    faces.push({ id: faces.length, loop, pts, area: A / 2 });
+  }
+
+  // bileşenler
+  const comp = new Array(verts.length).fill(-1);
+  const adj = new Map();
+  for (const e of edges) { (adj.get(e.u) || adj.set(e.u, []).get(e.u)).push(e.v); (adj.get(e.v) || adj.set(e.v, []).get(e.v)).push(e.u); }
+  let nc = 0;
+  for (const s of adj.keys()) {
+    if (comp[s] !== -1) continue;
+    const q = [s]; comp[s] = nc;
+    while (q.length) { const x = q.pop(); for (const y of adj.get(x)) if (comp[y] === -1) { comp[y] = nc; q.push(y); } }
+    nc++;
+  }
+  for (const f of faces) {
+    f.comp = comp[he[f.loop[0]].from];
+    f.hasCrease = f.loop.some(h => edges[he[h].edge].type === 'kat');
+  }
+
+  const inPoly = (p, poly) => {
+    let c = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      if ((yi > p[1]) !== (yj > p[1]) && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) c = !c;
+    }
+    return c;
+  };
+
+  // iç içe bileşenler: pencere / iç klape
+  const alias = faces.map(f => f.id);
+  const holes = new Map();
+  const bounded = faces.filter(f => f.area > 0);
+  const dropped = new Set();
+  for (const f of faces) {
+    if (f.area >= 0) continue;
+    const p = f.pts[0];
+    let best = null;
+    for (const g of bounded) if (g.comp !== f.comp && Math.abs(g.area) > Math.abs(f.area) && inPoly(p, g.pts))
+      if (!best || g.area < best.area) best = g;
+    if (!best) continue;
+    alias[f.id] = best.id;
+    if (!holes.has(best.id)) holes.set(best.id, []);
+    holes.get(best.id).push(f.pts);
+    for (const g of bounded) if (g.comp === f.comp && !g.hasCrease) dropped.add(g.id);  // pencere hurdası
+  }
+
+  // dört yanı kesimle çevrili, başka bir panele bitişik parça kutudan düşer (askı deliği, pencere):
+  // kata değen iç kesimler ayrı bileşen olmadığı için yukarıdaki pencere kuralına girmez
+  for (const f of bounded) {
+    if (f.hasCrease) continue;
+    if (f.loop.some(h => { const o = faces[faceOf[h ^ 1]]; return o && o !== f && o.area > 0; })) dropped.add(f.id);
+  }
+
+  const panels = [];
+  const pmap = new Map();
+  const MIN_AREA = 1 / (PT2MM * PT2MM);   // 1 mm²: üst üste binen çizgilerden doğan sıfır alanlı şeritler
+  for (const f of bounded) {
+    if (dropped.has(f.id) || f.area < MIN_AREA) continue;
+    const pts = f.pts;
+    let cx = 0, cy = 0, A = 0;
+    for (let k = 0; k < pts.length; k++) {
+      const p = pts[k], q = pts[(k + 1) % pts.length], c = p[0] * q[1] - q[0] * p[1];
+      A += c; cx += (p[0] + q[0]) * c; cy += (p[1] + q[1]) * c;
+    }
+    const panel = { id: panels.length, face: f.id, pts, holes: holes.get(f.id) || [], area: A / 2, c: [cx / (3 * A), cy / (3 * A)] };
+    // merkez bir deliğin içine düşerse bir köşe ortalamasına yaklaştır
+    pmap.set(f.id, panel.id);
+    panels.push(panel);
+  }
+  const pOf = h => pmap.get(alias[faceOf[h]]);
+
+  // içten kesilmiş parça (kilit dili, U kanca, askı dili): kesim kenarlarının çoğu tek bir komşu panele bakıyor
+  // VE parça o komşunun sınır kutusunun içinde duruyor. İkinci şart, aynı kesimi paylaşan yan yana klapeleri eler.
+  const vlen = e => Math.hypot(verts[e.u][0] - verts[e.v][0], verts[e.u][1] - verts[e.v][1]);
+  const pbox = p => { let a = [Infinity, Infinity, -Infinity, -Infinity]; for (const q of p.pts) a = [Math.min(a[0], q[0]), Math.min(a[1], q[1]), Math.max(a[2], q[0]), Math.max(a[3], q[1])]; return a; };
+  for (const p of panels) p.box = pbox(p);
+  for (const p of panels) {
+    let cut = 0; const adj = new Map();
+    for (const h of faces[p.face].loop) {
+      const e = edges[he[h].edge]; if (e.type !== 'kesim') continue;
+      const L = vlen(e); cut += L;
+      const o = pOf(h ^ 1); if (o !== undefined && o !== p.id) adj.set(o, (adj.get(o) || 0) + L);
+    }
+    p.inner = false; p.innerOf = null;   // innerOf: içinden kesildiği panel
+    for (const [o, L] of adj) {
+      const q = panels[o].box, b = p.box;
+      if (L / cut > 0.5 && b[0] >= q[0] - TOL && b[1] >= q[1] - TOL && b[2] <= q[2] + TOL && b[3] <= q[3] + TOL) { p.inner = true; p.innerOf = o; }
+    }
+  }
+
+  // menteşeler
+  const hmap = new Map();
+  edges.forEach((e, i) => {
+    if (e.type !== 'kat') return;
+    const p1 = pOf(2 * i), p2 = pOf(2 * i + 1);
+    if (p1 === undefined || p2 === undefined || p1 === p2) return;
+    const k = p1 < p2 ? `${p1}-${p2}` : `${p2}-${p1}`;
+    if (!hmap.has(k)) hmap.set(k, { p: Math.min(p1, p2), q: Math.max(p1, p2), pts: [] });
+    hmap.get(k).pts.push(verts[e.u], verts[e.v]);
+  });
+  const hinges = [...hmap.values()].map(h => {
+    const [a0, b0] = h.pts;
+    let dx = b0[0] - a0[0], dy = b0[1] - a0[1];
+    const L = Math.hypot(dx, dy); dx /= L; dy /= L;
+    let mn = Infinity, mx = -Infinity;
+    for (const p of h.pts) { const t = (p[0] - a0[0]) * dx + (p[1] - a0[1]) * dy; mn = Math.min(mn, t); mx = Math.max(mx, t); }
+    const a = [a0[0] + dx * mn, a0[1] + dy * mn], b = [a0[0] + dx * mx, a0[1] + dy * mx];
+    return { p: h.p, q: h.q, a, b, key: `${Math.round((a[0] + b[0]) * PT2MM / 2)}_${Math.round((a[1] + b[1]) * PT2MM / 2)}` };
+  });
+  // aynı çizgide orta noktası çakışan menteşeler (kilit dili + içindeki U kanca) ayrı anahtar alsın, açıları karışmasın
+  const seen = new Map();
+  for (const h of hinges) {
+    const n = seen.get(h.key) || 0; seen.set(h.key, n + 1);
+    if (n) h.key += `_${Math.round(Math.hypot(h.b[0] - h.a[0], h.b[1] - h.a[1]) * PT2MM)}_${n}`;
+  }
+
+  let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+  for (const v of verts) { bx0 = Math.min(bx0, v[0]); by0 = Math.min(by0, v[1]); bx1 = Math.max(bx1, v[0]); by1 = Math.max(by1, v[1]); }
+  return { panels, hinges, edges, verts, bbox: [bx0, by0, bx1, by1] };
+}
+
+// katlama ağacı
+function buildTree() {
+  const { panels, hinges } = S;
+  if (!panels.length) return;
+  const nb = new Map(panels.map(p => [p.id, []]));
+  hinges.forEach((h, i) => { nb.get(h.p).push(i); nb.get(h.q).push(i); });
+  // otomatik taban: kat sayısı × alan en büyük panel. Kutunun tabanı dört duvara bağlıdır; büyük bir
+  // kapak daha az kata, küçük bir yan panel daha küçük alana sahiptir.
+  const score = p => nb.get(p.id).length * Math.abs(p.area);
+  S.autoBaseId = panels.reduce((a, b) => score(b) > score(a) ? b : a).id;
+  if (S.baseId === null || !panels[S.baseId]) S.baseId = S.autoBaseId;
+  for (const p of panels) { p.parent = null; p.hinge = null; p.children = []; p.depth = -1; }
+  for (const h of hinges) { h.tree = false; h.parent = null; h.child = null; }
+  const base = panels[S.baseId]; base.depth = 0;
+  const q = [base.id];
+  while (q.length) {
+    const id = q.shift();
+    for (const hi of nb.get(id)) {
+      const h = hinges[hi], o = h.p === id ? h.q : h.p;
+      if (panels[o].depth !== -1) continue;
+      panels[o].depth = panels[id].depth + 1;
+      panels[o].parent = id; panels[o].hinge = hi;
+      panels[id].children.push(o);
+      h.tree = true; h.parent = id; h.child = o;
+      q.push(o);
+    }
+  }
+  // yarıklar: hiçbir kata bağlı olmayan çok küçük parçalar kesilip atılan deliklerdir, panel sayılmaz
+  const maxAll = Math.max(...panels.map(p => Math.abs(p.area)));
+  for (const p of panels) p.scrap = p.depth === -1 && Math.abs(p.area) < 0.02 * maxAll;
+
+  // varsayılan açı / sıra
+  const maxA = Math.max(...panels.filter(p => p.depth >= 0).map(p => Math.abs(p.area)));
+  // gövde: tabandan kopmadan gövdeye bağlı büyük duvarlar (tuck-end'in dört yüzü gibi); hep birlikte ilk adımda
+  const bodyMemo = new Map();
+  const isBody = p => {
+    if (p.depth === 0) return true;
+    if (!bodyMemo.has(p.id)) bodyMemo.set(p.id, Math.abs(p.area) >= 0.5 * maxA && p.children.length > 0 && isBody(panels[p.parent]));
+    return bodyMemo.get(p.id);
+  };
+  const stepOf = new Map();
+  const order = panels.filter(p => p.depth > 0).sort((a, b) => a.depth - b.depth);
+  // Oynat sırası (Mustafa'nın kararı): önce içeride kalacak parçalar görünsün, kutu en son kapansın.
+  // İç parça = uç klape (yapıştırma kulağı, toz kapağı, kapak dili) ya da kilit (içten kesilmiş parça ve dili).
+  // Duvarlar düzken katlanırlar, sonra duvarlar kalkar, sonra kapanışlar, en son kapak.
+  const early = p => !isBody(p) && (p.children.length === 0 || p.inner || panels[p.parent].inner);
+  for (const p of order) {
+    const par = panels[p.parent];
+    let st;
+    if (early(p)) st = 0;
+    else if (isBody(p)) st = 1;
+    else if (isBody(par)) st = p.children.length ? 3 : 2;
+    else st = (stepOf.get(par.id) || 3) + 1;   // bir parça bağlı olduğu parçadan önce katlanmaz
+    stepOf.set(p.id, st);
+  }
+  // kapak: gövde olmayan, derinde duran büyük parça (mailer kapağı gibi). Kendi alt ağacıyla birlikte en sona.
+  const lidRoots = order.filter(p => p.depth >= 2 && p.children.length && Math.abs(p.area) >= 0.5 * maxA && !isBody(p));
+  if (lidRoots.length) {
+    const inLid = new Map();
+    const mark = (id, root) => { if (!early(panels[id]) || id === root) inLid.set(id, root); for (const c of panels[id].children) mark(c, root); };
+    for (const r of lidRoots) mark(r.id, r.id);
+    const rest = [...stepOf].filter(([id]) => !inLid.has(id)).map(([, st]) => st);
+    const after = rest.length ? Math.max(...rest) : 0;
+    const orig = new Map(stepOf);   // kaydırma sırasında kökün yeni değeri çocukları bozmasın
+    for (const [id, root] of inLid) stepOf.set(id, after + 1 + orig.get(id) - orig.get(root));
+  }
+  // adımları 1'den başlayan ardışık sıraya çek (3,4 → 1,2)
+  const rank = [...new Set(stepOf.values())].sort((a, b) => a - b);
+  // uç klapeler 91°: 1° fazla katlanıp örttüğü duvarın/kapağın İÇİNE girer. 90°'de aynı düzlemde titreşir,
+  // 88°'de duvarın içinden dışarı taşıyordu (kapalı ölçü 1–2 mm büyüyordu).
+  // Kilit dili kuralı (Mustafa'nın kararı, her zaman geçerli):
+  //  · bir panelin içinden kesilmiş parça, kesildiği panelin düzleminde kalır (0°);
+  //    kat ettiği parça kesildiği panel değilse (U kanca: dile bağlı, dilin tabanından kesilmiş) dilin açısı kadar geri döner
+  //  · içten kesilmiş parçadan dışarı taşan kilit dili, bağlı olduğu parçaya 90° yatık durur
+  const defAngle = new Map();
+  const angleOf = id => {
+    if (defAngle.has(id)) return defAngle.get(id);
+    const p = panels[id], par = panels[p.parent];
+    let a;
+    if (p.inner) {
+      a = 0;
+      if (par && p.innerOf !== p.parent && par.parent === p.innerOf) {
+        // dilin menteşesinin öbür yanındaysa (tipik U kanca) dilin açısı kadar, aynı yanındaysa ters yönde
+        const h = hinges[par.hinge];
+        const side = c => Math.sign((h.b[0] - h.a[0]) * (c[1] - h.a[1]) - (h.b[1] - h.a[1]) * (c[0] - h.a[0]));
+        a = side(p.c) * side(par.c) < 0 ? angleOf(par.id) : -angleOf(par.id);
+      }
+    }
+    else if (par && par.inner) a = 90;
+    else a = p.children.length ? 90 : 91;
+    defAngle.set(id, a);
+    return a;
+  };
+  for (const h of hinges) {
+    if (!h.tree) continue;
+    const child = panels[h.child];
+    const cur = S.settings[h.key];
+    if (cur && cur.step == null) cur.step = rank.indexOf(stepOf.get(child.id)) + 1;   // taban değişti: sıra yeniden
+    if (!cur) S.settings[h.key] = { angle: angleOf(child.id), dir: 1, step: rank.indexOf(stepOf.get(child.id)) + 1 };
+  }
+}
+
+// ───────────────────────── 2D görünüm ─────────────────────────
+const NS = 'http://www.w3.org/2000/svg';
+const el = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+const PALETTE = ['#f59e9e', '#8ec5f5', '#a8dc8e', '#f6cf73', '#c3a6f2', '#7fd6cb', '#f3a6d6', '#d4d47a', '#9fb0f0', '#f2b48c', '#8edfae', '#e0a0e6'];
+
+// her panel mümkün olduğunca farklı renk alsın; renk tekrar ederse bile komşuya düşmesin
+function panelColors() {
+  const nb = new Map(S.panels.map(p => [p.id, new Set()]));
+  for (const h of S.hinges) { nb.get(h.p).add(h.q); nb.get(h.q).add(h.p); }
+  const col = new Map(), count = new Map(PALETTE.map(c => [c, 0]));
+  for (const p of [...S.panels].sort((a, b) => a.c[1] - b.c[1] || a.c[0] - b.c[0])) {
+    const used = new Set([...nb.get(p.id)].map(q => col.get(q)));
+    const c = PALETTE.filter(c => !used.has(c)).sort((a, b) => count.get(a) - count.get(b))[0] || PALETTE[p.id % PALETTE.length];
+    col.set(p.id, c); count.set(c, count.get(c) + 1);
+  }
+  return col;
+}
+
+function draw2D() {
+  const svg = $('svg2d'); svg.innerHTML = '';
+  const paths = S.paths.filter(p => S.roles[p.group] !== 'yok');
+  const src = S.bbox || (() => {
+    let a = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const p of paths) for (const q of p.pts) a = [Math.min(a[0], q[0]), Math.min(a[1], q[1]), Math.max(a[2], q[0]), Math.max(a[3], q[1])];
+    return a;
+  })();
+  if (!isFinite(src[0])) return;
+  const m = 6 / PT2MM;
+  svg.setAttribute('viewBox', `${(src[0] - m) * PT2MM} ${(src[1] - m) * PT2MM} ${(src[2] - src[0] + 2 * m) * PT2MM} ${(src[3] - src[1] + 2 * m) * PT2MM}`);
+  const span = Math.max(src[2] - src[0], src[3] - src[1]) * PT2MM;
+  const mm = p => `${p[0] * PT2MM},${p[1] * PT2MM}`;
+  const col = panelColors();
+  for (const p of S.panels) {
+    let d = 'M' + p.pts.map(mm).join('L') + 'Z';
+    for (const h of p.holes) d += 'M' + h.map(mm).join('L') + 'Z';
+    const isBase = p.id === S.baseId;
+    const path = el('path', { d, class: 'panel', 'data-pid': p.id, 'fill-rule': 'evenodd',
+      fill: p.scrap ? '#fafaf7' : p.depth === -1 ? '#ddd' : col.get(p.id),
+      stroke: isBase ? '#1d1d1b' : 'none', 'stroke-width': isBase ? span / 150 : 0 });
+    const tt = el('title', {}); tt.textContent = `P${p.id + 1}${isBase ? ' (taban)' : ''} · ${(Math.abs(p.area) * PT2MM * PT2MM / 100).toFixed(1)} cm²`;
+    path.appendChild(tt);
+    path.addEventListener('click', () => selectPanel(p.id));
+    svg.appendChild(path);
+  }
+  for (const p of paths) {
+    const role = S.roles[p.group];
+    svg.appendChild(el('polyline', { points: p.pts.map(mm).join(' '), fill: 'none',
+      stroke: role === 'kesim' ? 'var(--cut)' : 'var(--crease)', 'stroke-width': span / 400,
+      'stroke-dasharray': role === 'kat' ? `${span / 100} ${span / 170}` : '', 'pointer-events': 'none' }));
+  }
+  S.hinges.forEach((h, i) => {
+    svg.appendChild(el('line', { x1: h.a[0] * PT2MM, y1: h.a[1] * PT2MM, x2: h.b[0] * PT2MM, y2: h.b[1] * PT2MM,
+      stroke: 'var(--sel)', 'stroke-width': span / 90, opacity: 0, id: `hl${i}`, 'pointer-events': 'none' }));
+  });
+  const fs = Math.max(5, span / 40);
+  for (const p of S.panels) {
+    if (p.scrap) continue;
+    const t = el('text', { x: p.c[0] * PT2MM, y: p.c[1] * PT2MM, class: 'lbl', style: `font-size:${fs}px` });
+    t.textContent = `P${p.id + 1}`;
+    svg.appendChild(t);
+    if (p.id === S.baseId) {
+      const b = el('text', { x: p.c[0] * PT2MM, y: p.c[1] * PT2MM + fs * 1.1, class: 'lbl', style: `font-size:${fs * 0.7}px;font-weight:500` });
+      b.textContent = 'taban';
+      svg.appendChild(b);
+    }
+  }
+}
+
+function drawGroups() {
+  const t = $('tblGroups');
+  t.innerHTML = '<tr><th></th><th>Spot / katman</th><th>Çizgi</th><th>Adet</th><th>Rol</th></tr>';
+  for (const g of S.groups) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><span class="sw" style="background:${g.color}"></span></td>
+      <td>${g.spot ? `<b>${g.spot}</b><br>` : ''}${g.layer || '<i>katmansız</i>'}${S.why?.[g.key] ? `<br><span class="hint" style="margin:0">${S.why[g.key]}</span>` : ''}</td><td>${g.dash ? 'kesikli' : 'düz'}</td><td>${g.paths.length}</td>
+      <td><select><option value="kesim">Kesim</option><option value="kat">Kat</option><option value="yok">Yok say</option></select></td>`;
+    const sel = tr.querySelector('select');
+    sel.value = S.roles[g.key];
+    sel.onchange = () => { S.roles[g.key] = sel.value; rebuildGeometry(); };
+    t.appendChild(tr);
+  }
+  const c = r => S.groups.filter(g => S.roles[g.key] === r).length;
+  $('sumGroups').textContent = `${c('kesim')} kesim · ${c('kat')} kat · ${c('yok')} yok sayılan`;
+}
+
+function drawHinges() {
+  const t = $('tblHinges');
+  const rows = S.hinges.map((h, i) => [h, i]).filter(([h]) => h.tree)
+    .sort((a, b) => S.settings[a[0].key].step - S.settings[b[0].key].step || S.panels[a[0].child].depth - S.panels[b[0].child].depth);
+  t.innerHTML = '<tr><th>Kat</th><th>Açı°</th><th>Yön</th><th>Adım</th></tr>';
+  for (const [h, i] of rows) {
+    const s = S.settings[h.key];
+    const tr = document.createElement('tr');
+    tr.dataset.hinge = i;
+    tr.innerHTML = `<td>P${h.parent + 1} → P${h.child + 1}</td>
+      <td><input type="number" min="-180" max="180" step="1" value="${s.angle}"></td>
+      <td><select><option value="1">İçe</option><option value="-1">Dışa</option></select></td>
+      <td><input type="number" min="1" max="20" step="1" value="${s.step}" style="width:44px"></td>`;
+    const [ang, , stp] = tr.querySelectorAll('input, select');
+    const dir = tr.querySelector('select'); dir.value = String(s.dir);
+    ang.oninput = () => { s.angle = +ang.value || 0; viewer.update(); showInfo(); };
+    dir.onchange = () => { s.dir = +dir.value; viewer.update(); showInfo(); };
+    stp.onchange = () => { s.step = Math.max(1, +stp.value || 1); viewer.update(); drawHingeSummary(); };
+    tr.onmouseenter = () => { tr.classList.add('hl'); const l = $(`hl${i}`); if (l) l.setAttribute('opacity', 1); };
+    tr.onmouseleave = () => { tr.classList.remove('hl'); const l = $(`hl${i}`); if (l && S.selHinge !== i) l.setAttribute('opacity', 0); };
+    t.appendChild(tr);
+  }
+  if (!rows.length) t.innerHTML += '<tr><td colspan="4" class="hint">Kat bulunamadı. Çizgi gruplarının rolünü kontrol et.</td></tr>';
+  drawHingeSummary(); drawBaseSelect();
+}
+// bir parça seçilince (3D'de ya da açınımda tek tık) Katlar'da onu katlayan satırı göster
+// Taban elle seçildiyse kutu hep o tabanın üstünde durur (Mustafa'nın kararı): kaydedilen duruştan sadece
+// dikey eksendeki dönüş (Çevir, 90° adımlarla) kalır; Devir yalnızca bakmak içindir, kaydedilmez, Oynat tabanda biter.
+function yawOnly(arr) {
+  const q = new THREE.Quaternion().fromArray(arr);
+  const vx = new THREE.Vector3(1, 0, 0).applyQuaternion(q), vz = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+  let yaw = Math.abs(vx.y) <= Math.abs(vz.y) ? Math.atan2(-vx.z, vx.x) : Math.atan2(vz.x, vz.z);
+  yaw = Math.round(yaw / (Math.PI / 2)) * (Math.PI / 2);
+  const r = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw).toArray().map(v => +v.toFixed(6));
+  return r.every((v, i) => Math.abs(v - [0, 0, 0, 1][i]) < 1e-6) ? null : r;
+}
+const keepOnBase = arr => arr && S.baseManual ? yawOnly(arr) : arr;
+
+// tabanı değiştir (Katlar'daki Taban seçimi ve açınımdaki "Taban yap" butonu aynı yolu kullanır)
+function setBase(pid) {
+  S.baseManual = pid !== S.autoBaseId;
+  S.baseId = S.baseManual ? pid : null;
+  // yeni taban = kutu bu yüzünün üstüne oturur: önceki Devir/Çevir döndürmeleri geçersiz, "Başa dön" de buraya döner
+  S.orient = null; S.autoOrient = null; S.orientChecked = true;
+  // ağaç değişti: katlanma sırası yeni tabana göre yeniden hesaplansın (açı ve yön korunur)
+  for (const k in S.settings) delete S.settings[k].step;
+  buildTree(); refreshAll();
+}
+// seçili parçanın adının altında küçük "Taban yap" butonu (parça zaten tabansa gösterilmez)
+function drawBaseButton(p) {
+  $('baseBtn')?.remove();
+  if (!p || p.scrap || p.id === S.baseId || !S.bbox) return;
+  const [x0, y0, x1, y1] = S.bbox, span = Math.max(x1 - x0, y1 - y0) * PT2MM, fs = Math.max(5, span / 40);
+  const g = el('g', { id: 'baseBtn', class: 'basebtn', transform: `translate(${p.c[0] * PT2MM},${p.c[1] * PT2MM + fs * 1.25})` });
+  const r = el('rect', { rx: fs * 0.3 }), t = el('text', { 'text-anchor': 'middle', 'dominant-baseline': 'middle', style: `font-size:${fs * 0.6}px` });
+  t.textContent = '⌂ Taban yap';
+  const tt = el('title', {}); tt.textContent = `P${p.id + 1} taban olsun: kutu bu parçaya göre katlanır`;
+  g.append(tt, r, t); $('svg2d').appendChild(g);
+  const b = t.getBBox(), px = fs * 0.3, py = fs * 0.15;
+  Object.entries({ x: b.x - px, y: b.y - py, width: b.width + 2 * px, height: b.height + 2 * py }).forEach(([k, v]) => r.setAttribute(k, v));
+  g.addEventListener('click', e => { e.stopPropagation(); setBase(p.id); selectPanel(p.id); status(`P${p.id + 1} taban yapıldı. Kutu buna göre katlanıyor.`); });
+}
+
+function selectPanel(pid) {
+  $('baseBtn')?.remove();
+  for (const r of document.querySelectorAll('#tblHinges tr.sel')) r.classList.remove('sel');
+  if (S.selHinge != null) { const l = $(`hl${S.selHinge}`); if (l) l.setAttribute('opacity', 0); }
+  S.selHinge = null;
+  for (const e of document.querySelectorAll('#svg2d path.panel.sel')) e.classList.remove('sel');
+  const p = pid == null ? null : S.panels[pid];
+  if (!p || p.scrap) return;
+  const pe = document.querySelector(`#svg2d path.panel[data-pid="${pid}"]`); if (pe) pe.classList.add('sel');
+  drawBaseButton(p);
+  $('secHinges').open = true;
+  if (p.hinge == null) {   // taban ya da bağlantısız parça: satırı yok
+    const b = $('selBase'); b.scrollIntoView({ block: 'center', behavior: 'smooth' }); b.focus();
+    status(p.id === S.baseId ? `P${p.id + 1} taban: kutu buna göre katlanır, kendi katı yok.` : `P${p.id + 1} hiçbir kata bağlı değil.`, p.id !== S.baseId);
+    return;
+  }
+  S.selHinge = p.hinge;
+  const l = $(`hl${p.hinge}`); if (l) l.setAttribute('opacity', 1);
+  const tr = document.querySelector(`#tblHinges tr[data-hinge="${p.hinge}"]`);
+  if (!tr) return;
+  tr.classList.add('sel');
+  tr.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  const inp = tr.querySelector('input'); inp.focus({ preventScroll: true }); inp.select();
+}
+
+function drawBaseSelect() {
+  const sel = $('selBase');
+  const auto = S.autoBaseId;
+  sel.innerHTML = `<option value="auto">P${auto + 1} (otomatik)</option>` +
+    S.panels.filter(p => !p.scrap && p.id !== auto).map(p => `<option value="${p.id}">P${p.id + 1}</option>`).join('');
+  sel.value = S.baseManual ? String(S.baseId) : 'auto';
+  sel.onchange = () => setBase(sel.value === 'auto' ? auto : +sel.value);
+}
+function drawHingeSummary() {
+  const tree = S.hinges.filter(h => h.tree);
+  const steps = new Set(tree.map(h => S.settings[h.key].step));
+  $('sumHinges').textContent = `${tree.length} kat · ${steps.size} adım`;
+}
+
+// ───────────────────────── 3. 3D görüntüleyici ─────────────────────────
+// Bu fonksiyon müşteri dosyasına .toString() ile aynen kopyalanır: dışarıdaki
+// hiçbir değişkene dokunmaz, her şeyi parametrelerden alır. İçinde script kapanış etiketi geçmemeli.
+function createViewer(THREE, OrbitControls, container, opts = {}) {
+  const PI = Math.PI;
+  const DIR = new THREE.Vector3(0.5, 0.5, 0.71).normalize();   // ~30° yükseklik, ~35° yan
+  const OVERLAP = 0.35, N = 120, W = 8, OPEN_DEG = 110, OPEN_MS = 450;
+  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  container.appendChild(renderer.domElement);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(opts.background || '#cfcdc6');
+  const camera = new THREE.PerspectiveCamera(35, 1, 1, 100000);
+  camera.position.copy(DIR).multiplyScalar(500);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  // ışık: parlama yok, tasarımın rengi üst yüzde olduğu gibi okunur; yan yüzler yönle ayrışır
+  const hemi = new THREE.HemisphereLight(0xffffff, 0xe4e0d8, 0.45 * PI);
+  const key = new THREE.DirectionalLight(0xffffff, 0.7 * PI);
+  const KEYDIR = new THREE.Vector3(0.3, 1, 0.8).normalize();
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.bias = -0.0004; key.shadow.normalBias = 0.5;
+  const fill = new THREE.DirectionalLight(0xffffff, 0.2 * PI);
+  fill.position.set(-1, 0.4, -0.6);
+  scene.add(hemi, key, key.target, fill);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShadowMaterial({ opacity: 0.25 }));
+  ground.rotation.x = -PI / 2; ground.position.y = -0.4; ground.receiveShadow = true;
+  scene.add(ground);
+  const model = new THREE.Group();
+  scene.add(model);
+
+  let D = null, pivots = [], edgeObjs = [], texture = null, texCanvas = null, matFront = null, matBack = null;
+  // varak: maske (beyaz = folyo) + metalik malzeme + kodla üretilen stüdyo yansıması (dış dosya yok: müşteri dosyasında da çalışır)
+  let foilTex = null, foilSrc = null, matFoil = null, foilColor = null, envTex = null;
+  function studioEnv() {
+    if (envTex) return envTex;
+    const c = document.createElement('canvas'); c.width = 1024; c.height = 512;
+    const x = c.getContext('2d');
+    const g = x.createLinearGradient(0, 0, 0, 512);
+    // aydınlık stüdyo + koyu ufuk bandı: metal ancak açık-koyu karşıtlığıyla "metal" okunur
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.38, '#e4e0d8'); g.addColorStop(0.48, '#7a766f');
+    g.addColorStop(0.53, '#55524c'); g.addColorStop(0.62, '#c9c5bd'); g.addColorStop(1, '#a29e97');
+    x.fillStyle = g; x.fillRect(0, 0, 1024, 512);
+    // dikey softbox şeritleri + aralarında koyu bantlar: dalgalı varak yüzeyinde sarı/koyu bantlar olarak görünür
+    for (let u = 0; u < 1024; u += 192) {
+      const gr = x.createLinearGradient(u, 0, u + 192, 0);
+      gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.35, 'rgba(255,255,255,1)');
+      gr.addColorStop(0.55, 'rgba(255,255,255,0.85)'); gr.addColorStop(0.8, 'rgba(40,36,30,0.3)'); gr.addColorStop(1, 'rgba(40,36,30,0)');
+      x.fillStyle = gr; x.fillRect(u, 30, 192, 330);
+    }
+    const t = new THREE.CanvasTexture(c); t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace;
+    const pm = new THREE.PMREMGenerator(renderer);
+    envTex = pm.fromEquirectangular(t).texture; t.dispose(); pm.dispose();
+    return envTex;
+  }
+  // varak yüzeyinde 45° çapraz dalgalanma (normal haritası, Mustafa'nın isteği): düz yüzey her yerde aynı rengi
+  // yansıtır, dalgayla yansıma yüzey boyunca değişir, gerçek varaktaki gibi parlak/koyu bantlar oluşur
+  let foilNormal = null;
+  function waveNormal() {
+    if (foilNormal) return foilNormal;
+    const W = 256, c = document.createElement('canvas'); c.width = c.height = W;
+    const x = c.getContext('2d'), img = x.createImageData(W, W);
+    for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) {
+      const ph = 2 * PI * (i + j) / W;   // i+j sabit = çapraz çizgi; kare doku her iki yönde kesintisiz tekrarlar
+      const a = 0.24 * Math.cos(ph);   // eğim: tek, yumuşak dalga (Mustafa: açık-koyu geçişi daha yumuşak)
+      // eğim çapraz yönde; canvas satırı aşağı, dokunun v'si yukarı: y bileşeni ters işaretli
+      const n = new THREE.Vector3(-a / Math.SQRT2, a / Math.SQRT2, 1).normalize();
+      const k = (j * W + i) * 4;
+      img.data[k] = (n.x * 0.5 + 0.5) * 255; img.data[k + 1] = (n.y * 0.5 + 0.5) * 255; img.data[k + 2] = (n.z * 0.5 + 0.5) * 255; img.data[k + 3] = 255;
+    }
+    x.putImageData(img, 0, 0);
+    foilNormal = new THREE.CanvasTexture(c);
+    foilNormal.wrapS = foilNormal.wrapT = THREE.RepeatWrapping;
+    return foilNormal;
+  }
+  const FOIL_WAVE_MM = 25;   // bantlar arası dik mesafe (mm); Mustafa: 7 mm çok sıktı
+  function foilLook() {
+    if (!matFoil) return;
+    const on = !!foilColor;
+    matFoil.color.set(on ? foilColor : (D.foilFlat || '#c9a24a'));
+    matFoil.metalness = on ? 1 : 0; matFoil.roughness = on ? 0.28 : 1;
+    matFoil.envMapIntensity = on ? 1.7 : 0;
+    matFoil.normalMap = on ? waveNormal() : null;
+    // karo mm cinsinden kare olsun ki açı 45° kalsın; çapraz bant aralığı = karo kenarı / √2
+    if (on) { const tile = FOIL_WAVE_MM * Math.SQRT2; matFoil.normalMap.repeat.set(D.frame.bw / tile, D.frame.bh / tile); matFoil.normalScale.set(1, 1); }
+    matFoil.needsUpdate = true;
+  }
+  let overlay = false, card = '#ffffff', t = 1, mode = 'closed', track = null, trackSig = '';
+  // duruş: kutunun kapalı hâldeki yönelimi. Katlamanın son çeyreğinde bu yöne döner (düz açınım hep yerde başlar)
+  const orient = new THREE.Quaternion(), qTmp = new THREE.Quaternion(), qId = new THREE.Quaternion();
+  let orientHome = new THREE.Quaternion(), turning = null, turnTarget = null;
+  const qAt = tt => qTmp.slerpQuaternions(qId, orient, ease(clamp01((tt - 0.72) / 0.28)));
+  let playing = null;
+  const ease = x => x * x * (3 - 2 * x);
+  const clamp01 = x => Math.min(1, Math.max(0, x));
+
+  function resize() {
+    const w = container.clientWidth, h = container.clientHeight;
+    if (!w || !h) return;
+    renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+    if (D) mode === 'flat' ? viewFlat() : place(true);
+  }
+  new ResizeObserver(resize).observe(container);
+
+  // doku = karton rengi + tasarım (multiply) + istenirse bıçak izi
+  function compose() {
+    const art = D.art, Wd = art.naturalWidth || art.width, Ht = art.naturalHeight || art.height;
+    // doku ekran kartına bir kez yüklenince boyutu değişemez: yeni boyutta eski dokuyu at, yenisini kur
+    if (texture && (texCanvas.width !== Wd || texCanvas.height !== Ht)) {
+      texture.dispose(); texture = null; texCanvas = null;
+    }
+    if (!texCanvas) texCanvas = document.createElement('canvas');
+    texCanvas.width = Wd; texCanvas.height = Ht;
+    const ctx = texCanvas.getContext('2d');
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = card; ctx.fillRect(0, 0, Wd, Ht);
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.drawImage(art, 0, 0, Wd, Ht);
+    ctx.globalCompositeOperation = 'source-over';
+    if (overlay) {
+      const F = D.frame, s = Wd / F.bw;
+      const X = p => (p[0] - F.x0) * s, Y = p => (p[1] - F.y0) * s;
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      // kalınlık kutu boyuna göre: ekranda her yakınlıkta okunur (kesimin yarısı panel dışında kalır)
+      const lw = Math.max(0.8, Math.max(F.bw, F.bh) / 210) * s;
+      ctx.lineWidth = lw;
+      for (const [lines, color, dash] of [[D.lines.crease, '#16a34a', [lw * 3, lw * 2]], [D.lines.cut, '#e0115f', []]]) {
+        ctx.strokeStyle = color; ctx.setLineDash(dash);
+        for (const l of lines) { ctx.beginPath(); l.forEach((p, i) => i ? ctx.lineTo(X(p), Y(p)) : ctx.moveTo(X(p), Y(p))); ctx.stroke(); }
+      }
+      ctx.setLineDash([]);
+    }
+    if (D.foil !== foilSrc) {
+      if (foilTex) foilTex.dispose();
+      foilSrc = D.foil; foilTex = null;
+      if (D.foil) { foilTex = new THREE.Texture(D.foil); foilTex.anisotropy = renderer.capabilities.getMaxAnisotropy(); foilTex.needsUpdate = true; }
+    }
+    if (!texture) {
+      texture = new THREE.CanvasTexture(texCanvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    }
+    texture.needsUpdate = true;
+  }
+
+  const v3 = p => new THREE.Vector3(p[0], 0, p[1]);
+  function panelObj(p) {
+    const toV = q => new THREE.Vector2(q[0], q[1]);
+    const shape = new THREE.Shape(p.pts.map(toV));
+    for (const h of p.holes) shape.holes.push(new THREE.Path(h.map(toV)));
+    const geo = new THREE.ShapeGeometry(shape);
+    const pos = geo.attributes.position, uv = geo.attributes.uv, F = D.frame;
+    for (let i = 0; i < pos.count; i++) uv.setXY(i, (pos.getX(i) - F.x0) / F.bw, 1 - (pos.getY(i) - F.y0) / F.bh);
+    geo.rotateX(PI / 2);   // (x,y,0) → (x,0,y): PDF'in aşağı y'si +z, üstten bakınca aynasız
+    const idx = geo.index.array;   // döndürme ön yüzü -Y'ye çevirdi; sarımı çevir, baskı +Y'ye baksın
+    for (let i = 0; i < idx.length; i += 3) { const k = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = k; }
+    geo.computeVertexNormals();
+    const g = new THREE.Group();
+    const front = new THREE.Mesh(geo, matFront), back = new THREE.Mesh(geo, matBack);
+    front.castShadow = back.castShadow = true;
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 1),
+      new THREE.LineBasicMaterial({ color: 0x2b2a27, transparent: true, opacity: 0.55 }));
+    edges.visible = overlay;   // kenar çizgileri sadece bıçak iziyle görünür
+    edgeObjs.push(edges);
+    g.add(front, back, edges);
+    if (matFoil) g.add(new THREE.Mesh(geo, matFoil));   // baskının hemen üstünde, maskeyle kırpılmış folyo
+    g.userData.pid = p.id;
+    return g;
+  }
+
+  function build() {
+    model.clear(); pivots = []; edgeObjs = [];
+    const mat = side => new THREE.MeshLambertMaterial({ side, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+    matFront = mat(THREE.FrontSide); matFront.map = texture;
+    matBack = mat(THREE.BackSide); matBack.color.set(card);
+    matFoil = foilTex ? new THREE.MeshStandardMaterial({ alphaMap: foilTex, transparent: true, depthWrite: false, envMap: studioEnv(),
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }) : null;
+    foilLook();
+    const P = new Map(D.panels.map(p => [p.id, p]));
+    const kids = new Map();
+    for (const h of D.hinges) { if (!kids.has(h.parent)) kids.set(h.parent, []); kids.get(h.parent).push(h); }
+    const make = (pid, parent) => {
+      const g = panelObj(P.get(pid)); parent.add(g);
+      for (const h of kids.get(pid) || []) {
+        const c = P.get(h.child);
+        const a = v3(h.a), axis = v3(h.b).sub(a).normalize();
+        const r = v3(c.c).sub(a); r.sub(axis.clone().multiplyScalar(r.dot(axis)));
+        const sign = new THREE.Vector3().crossVectors(axis, r).y < 0 ? 1 : -1;
+        const pivot = new THREE.Group(); pivot.position.copy(a);
+        const inner = new THREE.Group(); inner.position.copy(a).negate();
+        pivot.add(inner); g.add(pivot);
+        pivots.push({ pivot, axis, sign, key: h.key, pid: h.child, open: 0, openTo: 0 });
+        make(h.child, inner);
+      }
+    };
+    make(D.base, model);
+    track = null;
+  }
+
+  function applyAngles(tt, withOpen) {
+    const steps = [...new Set(pivots.map(p => D.settings[p.key].step))].sort((a, b) => a - b);
+    const n = steps.length || 1, L = n - (n - 1) * OVERLAP;
+    for (const pv of pivots) {
+      const s = D.settings[pv.key];
+      const local = ease(clamp01(tt * L - steps.indexOf(s.step) * (1 - OVERLAP)));
+      let a = s.angle * local;
+      // çift tıkla açılan parça: kapalı konumdan OPEN_DEG kadar geri açılır (90° kapak → -20°, hafif dışa eğik)
+      if (withOpen && pv.open > 0) a += (s.angle - OPEN_DEG - a) * ease(pv.open);
+      pv.pivot.quaternion.setFromAxisAngle(pv.axis, pv.sign * s.dir * a * PI / 180);
+    }
+  }
+
+  // katlama yolunu önceden örnekle: kutu kaymasın, zemine girmesin, kamera yumuşak takip etsin
+  function computeTrack() {
+    const raw = { cx: [], cz: [], lift: [], mid: [], r: [] }, box = new THREE.Box3(), sz = new THREE.Vector3();
+    let flatSize = null, closedSize = null;
+    for (let i = 0; i <= N; i++) {
+      applyAngles(i / N, false);
+      model.position.set(0, 0, 0); model.quaternion.copy(qAt(i / N)); model.updateMatrixWorld(true);
+      box.setFromObject(model, true); box.getSize(sz);
+      raw.cx.push((box.min.x + box.max.x) / 2); raw.cz.push((box.min.z + box.max.z) / 2);
+      raw.lift.push(-box.min.y); raw.mid.push((box.min.y + box.max.y) / 2); raw.r.push(sz.length() / 2);
+      if (i === 0) flatSize = sz.clone();
+    }
+    applyAngles(1, false); model.quaternion.identity(); model.updateMatrixWorld(true);   // ölçü duruştan bağımsız
+    box.setFromObject(model, true); closedSize = box.getSize(new THREE.Vector3());
+    // pencere uçlarda simetrik daralır: t=0 ve t=1 birebir ham değerde kalır (düz açınım ortada, zeminde)
+    const win = i => Math.min(W, i, N - i);
+    const gauss = a => a.map((_, i) => {
+      const w0 = win(i); let s = 0, w = 0;
+      for (let j = i - w0; j <= i + w0; j++) { const g = Math.exp(-((j - i) ** 2) / (W * W / 2)); s += a[j] * g; w += g; }
+      return s / w;
+    });
+    const maxf = a => a.map((_, i) => Math.max(...a.slice(i - win(i), i + win(i) + 1)));
+    const lift = gauss(maxf(raw.lift));   // maksimum filtre + yumuşatma: hiçbir anda zeminin altına inmez
+    track = { cx: gauss(raw.cx), cz: gauss(raw.cz), lift, mid: gauss(raw.mid.map((m, i) => m + lift[i])), r: gauss(raw.r), flatSize, closedSize };
+    trackSig = sig();
+  }
+  const sig = () => JSON.stringify(D.settings) + orient.toArray().map(v => v.toFixed(4));
+  const at = (a, tt) => { const x = clamp01(tt) * N, i = Math.min(N - 1, Math.floor(x)), f = x - i; return a[i] * (1 - f) + a[i + 1] * f; };
+
+  const fovs = () => { const v = camera.fov * PI / 180; return { v, h: 2 * Math.atan(Math.tan(v / 2) * camera.aspect) }; };
+  function lightFor(r, target) {
+    key.position.copy(target).addScaledVector(KEYDIR, r * 6);
+    key.target.position.copy(target);
+    const c = key.shadow.camera; c.left = c.bottom = -r * 1.6; c.right = c.top = r * 1.6; c.near = r; c.far = r * 14;
+    c.updateProjectionMatrix();
+    ground.scale.set(r * 60, r * 60, 1);
+  }
+
+  function place(follow) {
+    if (!D) return;
+    if (!track || trackSig !== sig()) computeTrack();
+    applyAngles(t, true);
+    model.quaternion.copy(qAt(t));
+    model.position.set(-at(track.cx, t), at(track.lift, t), -at(track.cz, t));
+    const r = at(track.r, t), target = new THREE.Vector3(0, at(track.mid, t), 0);
+    lightFor(Math.max(r, track.r[N]), target);
+    if (follow) {
+      const { v, h } = fovs();
+      const dist = r / Math.sin(Math.min(v, h) / 2) * 1.05;
+      const dir = camera.position.clone().sub(controls.target).normalize();
+      controls.target.copy(target);
+      camera.position.copy(target).addScaledVector(dir, dist);
+    }
+  }
+
+  function viewFlat() {
+    const s = track.flatSize, { v, h } = fovs();
+    const d = Math.max((s.x / 2) / Math.tan(h / 2), (s.z / 2) / Math.tan(v / 2)) * 1.1;
+    controls.target.set(0, 0, 0);
+    camera.position.set(0, d, 0.001);
+  }
+
+  // hızlı art arda basışta yeni dönüş, yarım kalan açıdan değil süren dönüşün hedefinden hesaplanır
+  const baseOrient = () => (turning && turnTarget ? turnTarget : orient).clone();
+  function toClosed() {
+    api.stop();
+    if (mode === 'flat') camera.position.copy(controls.target).addScaledVector(DIR, 1);
+    mode = 'closed'; t = 1;
+  }
+  // duruşu yumuşakça hedefe döndür; her karede yörünge yeni duruşla yeniden hesaplanır (~7 ms)
+  function turnTo(q1, onEnd) {
+    const q0 = orient.clone(), t0 = performance.now(), token = {}; turning = token; turnTarget = q1.clone();
+    const tick = now => {
+      if (turning !== token) return;
+      const k = clamp01((now - t0) / 500);
+      orient.slerpQuaternions(q0, q1, ease(k)); place(true);
+      if (k < 1) requestAnimationFrame(tick); else { turning = null; orient.copy(q1); place(true); onEnd && onEnd(); }
+    };
+    requestAnimationFrame(tick);
+  }
+  // eksene hizalı kal: küçük sayısal hataları temizle
+  const snapQ = q => {
+    const m = new THREE.Matrix4().makeRotationFromQuaternion(q), e = m.elements;
+    for (let i = 0; i < 16; i++) if ([3, 7, 11, 12, 13, 14, 15].indexOf(i) < 0) e[i] = Math.round(e[i]);
+    return new THREE.Quaternion().setFromRotationMatrix(m).normalize();
+  };
+
+  // ── çift tıkla parça aç/kapa ──
+  let opening = false;
+  function animateOpen() {
+    if (opening) return; opening = true;
+    let last = performance.now();
+    const tick = now => {
+      const step = (now - last) / OPEN_MS; last = now;
+      let moving = false;
+      for (const pv of pivots) {
+        if (pv.open === pv.openTo) continue;
+        pv.open = pv.openTo > pv.open ? Math.min(pv.openTo, pv.open + step) : Math.max(pv.openTo, pv.open - step);
+        moving = true;
+      }
+      place(false);
+      if (moving) requestAnimationFrame(tick); else opening = false;
+    };
+    requestAnimationFrame(tick);
+  }
+  function closeAll(instant) {
+    for (const pv of pivots) { pv.openTo = 0; if (instant) pv.open = 0; }
+    if (!instant) animateOpen();
+  }
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  // ekrandaki noktanın altındaki en öndeki panel; kapalı kapağın altındakine ulaşılamaz (gerçek kutudaki gibi)
+  function pick(x, y) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.set(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const hit = ray.intersectObject(model, true).find(i => i.object.isMesh);
+    for (let o = hit && hit.object; o; o = o.parent) if (o.userData.pid !== undefined) return pivots.find(pv => pv.pid === o.userData.pid) || null;
+    return null;
+  }
+  const canOpen = () => D && mode !== 'flat' && !playing;
+  function toggleAt(x, y) {
+    if (!canOpen()) return;
+    const pv = pick(x, y); if (!pv) return;
+    pv.openTo = pv.openTo ? 0 : 1; animateOpen();
+    opts.onOpen && opts.onOpen();
+  }
+  const el = renderer.domElement;
+  el.addEventListener('dblclick', e => { e.preventDefault(); toggleAt(e.clientX, e.clientY); });
+  // dokunmatik: iki kısa dokunuş (sürükleme değil) 300 ms içinde ve yakın yerde
+  let down = null, lastTap = null;
+  el.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY }; });
+  // tek tık (sürükleme değil): hangi parçaya tıklandığını editöre bildir (Katlar'da satırını seçer)
+  const pickPid = (x, y) => {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.set(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const hit = ray.intersectObject(model, true).find(i => i.object.isMesh);
+    for (let o = hit && hit.object; o; o = o.parent) if (o.userData.pid !== undefined) return o.userData.pid;
+    return null;
+  };
+  el.addEventListener('pointerup', e => {
+    if (!opts.onSelect || !D || e.button !== 0 || !down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
+    opts.onSelect(pickPid(e.clientX, e.clientY));
+  });
+  el.addEventListener('pointerup', e => {
+    if (e.pointerType !== 'touch' || !down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 10) return;
+    const now = performance.now();
+    if (lastTap && now - lastTap.t < 300 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) { toggleAt(e.clientX, e.clientY); lastTap = null; }
+    else lastTap = { t: now, x: e.clientX, y: e.clientY };
+  });
+  // imleç: açılabilir parçanın üstünde el işareti
+  let hoverQueued = false, hx = 0, hy = 0;
+  el.addEventListener('pointermove', e => {
+    if (e.buttons || e.pointerType === 'touch') return;
+    hx = e.clientX; hy = e.clientY;
+    if (hoverQueued) return; hoverQueued = true;
+    requestAnimationFrame(() => { hoverQueued = false; el.style.cursor = canOpen() && pick(hx, hy) ? 'pointer' : ''; });
+  });
+
+  (function loop() {
+    requestAnimationFrame(loop);
+    controls.update();
+    renderer.render(scene, camera);
+  })();
+
+  // ── yüzen kontrol paneli (editör ve müşteri dosyası aynısını kullanır) ──
+  const LB = Object.assign({ tip: 'Devir', spin: 'Çevir', home: 'Başa dön', zin: 'Yakınlaş', zout: 'Uzaklaş',
+    orbit: 'Döndür', pan: 'Taşı', fit: 'Sığdır' }, opts.labels || {});
+  if (!document.getElementById('dv-ctl-style')) {
+    const st = document.createElement('style'); st.id = 'dv-ctl-style';
+    st.textContent = '.dv-ctl{position:absolute;right:12px;bottom:12px;display:flex;flex-direction:column;gap:8px;z-index:5}' +
+      '.dv-grp{display:flex;flex-direction:column;background:#ffffffe6;border-radius:10px;box-shadow:0 1px 4px #0003;overflow:hidden}' +
+      '.dv-ctl button{all:unset;box-sizing:border-box;width:38px;height:38px;display:flex;align-items:center;justify-content:center;' +
+      'font:18px/1 -apple-system,"Segoe UI Symbol","Segoe UI",sans-serif;color:#1d1d1b;cursor:pointer;border-bottom:1px solid #0000000f}' +
+      '.dv-ctl button:last-child{border-bottom:0}.dv-ctl button:hover{background:#0000000d}' +
+      '.dv-ctl button.on{background:#1d1d1b;color:#fff}' +
+      '.dv-ctl.narrow{flex-direction:row;left:50%;right:auto;transform:translateX(-50%);bottom:10px}' +
+      '.dv-ctl.narrow .dv-grp{flex-direction:row}.dv-ctl.narrow button{width:44px;height:44px;border-bottom:0;border-right:1px solid #0000000f}' +
+      '.dv-ctl.narrow button:last-child{border-right:0}';
+    document.head.appendChild(st);
+  }
+  const ctl = document.createElement('div'); ctl.className = 'dv-ctl';
+  const mkGrp = items => {
+    const g = document.createElement('div'); g.className = 'dv-grp';
+    for (const [icon, title, fn] of items) {
+      const b = document.createElement('button'); b.textContent = icon; b.title = title; b.setAttribute('aria-label', title);
+      b.addEventListener('click', e => { e.stopPropagation(); fn(b); });
+      g.appendChild(b);
+    }
+    ctl.appendChild(g);
+  };
+  const zoomBy = f => { const off = camera.position.clone().sub(controls.target).multiplyScalar(f); camera.position.copy(controls.target).add(off); };
+  const turned = () => opts.onTurn && opts.onTurn();
+  mkGrp([
+    ['⟲', LB.tip, () => api.tip(turned)],
+    ['↻', LB.spin, () => api.spin(turned)],
+    ['⌂', LB.home, () => api.resetOrient(turned)],
+  ]);
+  // sürükleme modu: her an biri seçili (Döndür = kamera döner, Taşı = kaydırır)
+  const modeBtns = {};
+  let dragMode = 'orbit';
+  function setDragMode(m) {
+    dragMode = m;
+    for (const k in modeBtns) modeBtns[k].classList.toggle('on', k === m);
+    controls.mouseButtons.LEFT = m === 'orbit' ? THREE.MOUSE.ROTATE : m === 'pan' ? THREE.MOUSE.PAN : -1;
+    controls.touches.ONE = m === 'orbit' ? THREE.TOUCH.ROTATE : m === 'pan' ? THREE.TOUCH.PAN : -1;
+  }
+  mkGrp([
+    ['⟳', LB.orbit, () => setDragMode('orbit')],
+    ['✥', LB.pan, () => setDragMode('pan')],
+  ]);
+  [modeBtns.orbit, modeBtns.pan] = ctl.lastChild.children;
+  setDragMode('orbit');
+  mkGrp([
+    ['+', LB.zin, () => zoomBy(0.8)],
+    ['−', LB.zout, () => zoomBy(1.25)],
+    ['⤢', LB.fit, () => { if (!D) return; setDragMode('orbit'); mode === 'flat' ? viewFlat() : place(true); }],
+  ]);
+
+  ctl.style.display = 'none';   // dosya yüklenince görünür
+  container.appendChild(ctl);
+  new ResizeObserver(() => ctl.classList.toggle('narrow', container.clientWidth < 560)).observe(container);
+
+  const api = {
+    renderer, camera,
+    get t() { return t; },
+    get mode() { return mode; },
+    load(data) {
+      D = data; card = data.card || card; ctl.style.display = ''; foilColor = data.foilColor || null;
+      // editör "home"u açıkça verir (null = sırt üstü); müşteri dosyasında home yok: başlangıç duruşu = home
+      const q = a => a ? new THREE.Quaternion().fromArray(a) : new THREE.Quaternion();
+      orient.copy(q(data.orient)); turning = null;
+      orientHome = 'home' in data ? q(data.home) : orient.clone();
+      compose(); build();
+      t = 1; mode = 'closed';
+      camera.position.copy(controls.target).addScaledVector(DIR, 1);
+      resize(); place(true);
+    },
+    update() { if (D) { track = null; place(mode !== 'flat'); } },
+    // çift tıkla açılmış parçaların o anki açısını kalıcı açıya çevir, "açık" işaretini sıfırla (görüntü değişmez)
+    get anyOpen() { return pivots.some(pv => pv.openTo > 0); },
+    bakeOpen() {
+      const out = [];
+      for (const pv of pivots) {
+        if (!(pv.open > 0)) continue;
+        const s = D.settings[pv.key];
+        out.push({ key: pv.key, pid: pv.pid, angle: Math.round(s.angle - OPEN_DEG * ease(pv.open)) });
+        pv.open = pv.openTo = 0;
+      }
+      return out;
+    },
+    setT(v, follow = true) {
+      if (!D) return;
+      if (mode === 'flat') { mode = 'closed'; camera.position.copy(controls.target).addScaledVector(DIR, 1); }
+      t = clamp01(v); place(follow);
+    },
+    play(dur, onTick, onEnd) {
+      if (!D) return;
+      api.stop();
+      if (mode === 'flat') { mode = 'closed'; camera.position.copy(controls.target).addScaledVector(DIR, 1); }
+      const t0 = performance.now(); const token = {}; playing = token;
+      closeAll(true); t = 0; place(true);
+      const tick = now => {
+        if (playing !== token) return;
+        t = clamp01((now - t0) / (dur * 1000)); place(true); onTick && onTick(t);
+        if (t < 1) requestAnimationFrame(tick); else { playing = null; onEnd && onEnd(); }
+      };
+      requestAnimationFrame(tick);
+    },
+    stop() { playing = null; turning = null; },
+    get playing() { return !!playing; },
+    showFlat() { if (!D) return; api.stop(); closeAll(true); mode = 'flat'; t = 0; place(false); viewFlat(); },
+    showClosed() { if (!D) return; api.stop(); mode = 'closed'; t = 1; camera.position.copy(controls.target).addScaledVector(DIR, 1); place(true); },
+    setOverlay(b) { overlay = b; for (const e of edgeObjs) e.visible = b; if (D) compose(); },
+    setCard(c) { card = c; if (D) { compose(); matBack.color.set(c); } },
+    // varak rengi; null = varak kapalı, spotun kendi rengiyle düz baskı gibi
+    setFoil(c) { foilColor = c || null; if (D) D.foilColor = foilColor; foilLook(); },
+    // ⟲ Devir: kutu kameraya doğru bir yüzün üstüne devrilir (ekseni ekranın sağ yönüne en yakın dünya ekseni)
+    tip(onEnd) {
+      if (!D) return; const b = baseOrient(); toClosed();
+      const right = new THREE.Vector3().crossVectors(camera.position.clone().sub(controls.target), camera.up);
+      const ax = Math.abs(right.x) > Math.abs(right.z) ? new THREE.Vector3(-Math.sign(right.x), 0, 0) : new THREE.Vector3(0, 0, -Math.sign(right.z));
+      turnTo(snapQ(new THREE.Quaternion().setFromAxisAngle(ax, PI / 2).multiply(b)), onEnd);
+    },
+    // ↻ Çevir: olduğu yerde dikey eksende 90°; ön yüz görünen sağ yana geçer, müşteri dönüşü izleyebilir
+    spin(onEnd) {
+      if (!D) return; const b = baseOrient(); toClosed();
+      turnTo(snapQ(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), PI / 2).multiply(b)), onEnd);
+    },
+    resetOrient(onEnd) { if (!D) return; toClosed(); closeAll(false); turnTo(orientHome.clone(), onEnd); },
+    get orient() { return orient.toArray().map(v => +v.toFixed(6)); },
+    // kapalı kutuda (duruş uygulanmadan) her panelin baskılı yüzünün baktığı yön
+    faceNormals() {
+      if (!D) return {};
+      applyAngles(1, false); model.quaternion.identity(); model.position.set(0, 0, 0); model.updateMatrixWorld(true);
+      const out = {}, n = new THREE.Vector3(), m = new THREE.Matrix3();
+      model.traverse(o => { if (o.userData.pid !== undefined) out[o.userData.pid] = n.set(0, 1, 0).applyMatrix3(m.getNormalMatrix(o.matrixWorld)).normalize().toArray(); });
+      place(false);
+      return out;
+    },
+    // duruşu hemen uygula; home=true ise "Başa dön" de buraya döner
+    setOrient(arr, home) {
+      orient.fromArray(arr); if (home) orientHome.copy(orient);
+      track = null; turning = null; if (D) place(mode !== 'flat');
+    },
+    _debug() { return { texCanvas, D, overlay, texture, model, track, pivots }; },
+    closedSize() { if (D && (!track || trackSig !== sig())) { computeTrack(); place(mode !== 'flat'); } return track && track.closedSize; },
+  };
+  return api;
+}
+
+// ───────────────────────── editör: 3D bağlantısı ─────────────────────────
+const view = $('view');
+const viewer = createViewer(THREE, OrbitControls, view, {
+  labels: { tip: 'Devir: kutuyu sana doğru bir yüzünün üstüne yatır', spin: 'Çevir: olduğu yerde 90° döndür',
+    home: 'Başa dön: başlangıç duruşuna', zin: 'Yakınlaş', zout: 'Uzaklaş',
+    orbit: 'Döndür: sürükleyince kutunun etrafında dön', pan: 'Taşı: sürükleyince kaydır (sağ tık her modda kaydırır)',
+    fit: 'Sığdır: kutuyu ortala, Döndür moduna dön' },
+  onTurn: () => { S.orient = keepOnBase(viewer.orient); $('rngT').value = 1000; setFlatBtn(); },
+  onSelect: pid => selectPanel(pid),
+});
+
+// PDF'i dieline çizgileri olmadan beyaz zemine çiz (tasarım görüntüsü)
+async function renderArt(isStale) {
+  // varak: adı FOIL_RE'ye uyan spot renkleri ve katmanlar
+  const foilHex = new Set([...(S.spots || new Map())].filter(([, n]) => n.some(x => FOIL_RE.test(x))).map(([h]) => h));
+  const foilLayers = occGroups(S.occ).filter(([, g]) => FOIL_RE.test(g?.name || '')).map(([id]) => id);
+  const foilNames = [...(S.spots || new Map())].filter(([h]) => foilHex.has(h)).flatMap(([, n]) => n).concat(occGroups(S.occ).filter(([id]) => foilLayers.includes(id)).map(([, g]) => g.name));
+  // sadece adı dieline olduğunu söyleyen katmanları gizle; "Layer 1" gibi ortak katmanda
+  // artwork da olabilir, orada çizgiler aşağıdaki renk filtresiyle atlanır. Varak katmanı da ana baskıda gizli.
+  const showMain = () => { for (const [id, g] of occGroups(S.occ)) {
+    const name = g?.name || '';
+    try { S.occ.setVisibility(id, !(CUT_RE.test(name) || CREASE_RE.test(name) || foilLayers.includes(id))); } catch {}
+  } };
+  showMain();
+  const [x0, y0, x1, y1] = S.bbox;
+  const pad = 3 / PT2MM;  // 3 mm taşma
+  const bw = x1 - x0 + 2 * pad, bh = y1 - y0 + 2 * pad;
+  const maxT = Math.min(4096, viewer.renderer.capabilities.maxTextureSize);
+  const sc = Math.min(maxT / bw, maxT / bh, 12);
+  const newCanvas = fill => { const c = document.createElement('canvas'); c.width = Math.round(bw * sc); c.height = Math.round(bh * sc);
+    const x = c.getContext('2d'); x.fillStyle = fill; x.fillRect(0, 0, c.width, c.height); return [c, x]; };
+  const BG = '#010203';   // maske geçişlerinde pdf.js'in sayfa zemini: tanınıp atlanır
+  const render = (ctx, background) => S.page.render({
+    canvasContext: ctx, viewport: S.page.getViewport({ scale: 1 }), background,
+    transform: [sc, 0, 0, sc, -(x0 - pad) * sc, -(y0 - pad) * sc],
+    optionalContentConfigPromise: Promise.resolve(S.occ),
+    annotationMode: pdfjsLib.AnnotationMode.DISABLE,
+  }).promise;
+  // çizim komutlarını süz: decide(stil) → 'atla' | 'boya' (beyaz çiz) | 'sil' (siyah çiz) | undefined (olduğu gibi çiz)
+  const OPS2D = [['fill', 'fillStyle'], ['fillRect', 'fillStyle'], ['fillText', 'fillStyle'], ['stroke', 'strokeStyle'], ['strokeText', 'strokeStyle']];
+  const patch = (ctx, decide) => { for (const [fn, prop] of OPS2D) { const orig = ctx[fn];
+    ctx[fn] = function (...a) {
+      const d = decide(String(this[prop]).toLowerCase(), fn);
+      if (d === 'atla') return;
+      if (d !== 'boya' && d !== 'sil') return orig.apply(this, a);
+      const old = this[prop]; this[prop] = d === 'boya' ? '#ffffff' : '#000000'; orig.apply(this, a); this[prop] = old;
+    }; } };
+  const unpatch = ctx => { for (const [fn] of OPS2D) delete ctx[fn]; delete ctx.drawImage; delete ctx.putImageData; };
+  // maske geçişlerinde görseller (fotoğraf, gömülü bitmap) hiç çizilmez: yoksa fotoğrafın açık tonları yarı saydam varak olur
+  const noImages = ctx => { ctx.drawImage = () => {}; ctx.putImageData = () => {}; };
+  // varak rengi geçişinde görsel varakın üstüne düşüyorsa onu deler: görselin silüeti siyah çizilir
+  const imagesErase = ctx => { const orig = ctx.drawImage;
+    ctx.drawImage = function (...a) { const f = this.filter; this.filter = 'brightness(0)'; orig.apply(this, a); this.filter = f; };
+    ctx.putImageData = () => {}; };
+
+  // 1) ana baskı: dieline çizgileri ve varak rengi atlanır (varakın altında kâğıt / alttaki baskı kalır)
+  const [cv, ctx] = newCanvas('#ffffff');
+  const skip = new Set(S.groups.filter(g => S.roles[g.key] !== 'yok').map(g => g.color));
+  patch(ctx, (st, fn) => foilHex.has(st) || (fn === 'stroke' && skip.has(st)) ? 'atla' : undefined);
+  await render(ctx);
+  unpatch(ctx);
+  if (isStale()) return false;   // bu arada başka bir yükleme başladıysa sonucu yazma
+
+  // 2) varak maskesi: siyah zemin, varak rengindeki her çizim beyaz
+  let foil = null;
+  if (foilHex.size || foilLayers.length) {
+    let mctx;
+    [foil, mctx] = newCanvas('#000000');
+    if (foilHex.size) {
+      // varakın üstüne sonradan çizilen her şey (beyaz yazı, fotoğraf, başka renk) varakı deler: Illustrator'ın
+      // varak kalıbı da böyle çıkıyor (overprint yok sayılır; varak baskıdan sonra basıldığı için altındaki baskı zaten görünmez)
+      // bıçak çizgileri basılmaz: varakı delmez
+      patch(mctx, (st, fn) => foilHex.has(st) ? 'boya' : (fn === 'stroke' && skip.has(st)) ? 'atla' : 'sil'); imagesErase(mctx);
+      await render(mctx, BG); unpatch(mctx);
+    }
+    if (foilLayers.length) {   // varak katmanı: tek başına görünür, içindeki her şey beyaz
+      for (const [id] of occGroups(S.occ)) try { S.occ.setVisibility(id, foilLayers.includes(id)); } catch {}
+      patch(mctx, st => st === BG ? 'atla' : 'boya'); noImages(mctx);
+      await render(mctx, BG); unpatch(mctx);
+      showMain();
+    }
+    if (isStale()) return false;
+  }
+  S.art = cv;
+  S.foil = foil;
+  S.foilFlat = [...foilHex][0] || '#c9a24a';   // "Kapalı": varak spotun kendi rengiyle düz baskı
+  if (foil && S.varak == null) S.varak = foilDefault(foilNames);
+  $('rowFoil').style.display = foil ? '' : 'none';
+  if (foil) $('selFoil').value = S.varak;
+  S.frame = { x0: (x0 - pad) * PT2MM, y0: (y0 - pad) * PT2MM, bw: bw * PT2MM, bh: bh * PT2MM };
+  return true;
+}
+
+// görüntüleyiciye giden veri: her şey mm, sadece katlama ağacındaki menteşeler
+function viewerData() {
+  const mm = p => [p[0] * PT2MM, p[1] * PT2MM];
+  const reach = S.panels.filter(p => p.depth >= 0);
+  const lines = { cut: [], crease: [] };
+  for (const p of S.paths) {
+    const r = S.roles[p.group];
+    if (r === 'kesim') lines.cut.push(p.pts.map(mm));
+    else if (r === 'kat') lines.crease.push(p.pts.map(mm));
+  }
+  return {
+    panels: reach.map(p => ({ id: p.id, pts: p.pts.map(mm), holes: p.holes.map(h => h.map(mm)), c: mm(p.c) })),
+    hinges: S.hinges.filter(h => h.tree).map(h => ({ parent: h.parent, child: h.child, a: mm(h.a), b: mm(h.b), key: h.key })),
+    base: S.baseId, settings: S.settings, lines, frame: S.frame, art: S.art, home: S.autoOrient || null,
+    card: $('selCard').value, orient: S.orient || null,
+    foil: S.foil || null, foilColor: S.foil ? FOIL_COLORS[S.varak] || null : null, foilFlat: S.foilFlat,
+  };
+}
+
+// M12: en çok baskı hangi yöne bakıyorsa o yön yukarı gelsin (mailer'da tasarımlı kapak üste gelir)
+function autoOrient() {
+  if (!S.art) return null;
+  const sc = 512 / Math.max(S.art.width, S.art.height);
+  const cv = document.createElement('canvas'); cv.width = Math.round(S.art.width * sc); cv.height = Math.round(S.art.height * sc);
+  const ctx = cv.getContext('2d'); ctx.drawImage(S.art, 0, 0, cv.width, cv.height);
+  const px = ctx.getImageData(0, 0, cv.width, cv.height).data, F = S.frame;
+  const toPx = p => [(p[0] * PT2MM - F.x0) / F.bw * cv.width, (p[1] * PT2MM - F.y0) / F.bh * cv.height];
+  const inPoly = (x, y, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
+  const normals = viewer.faceNormals();
+  const dirs = {};   // yön anahtarı → baskılı piksel sayısı
+  for (const p of S.panels) {
+    if (!normals[p.id]) continue;
+    const poly = p.pts.map(toPx);
+    const xs = poly.map(q => q[0]), ys = poly.map(q => q[1]);
+    let ink = 0;
+    for (let y = Math.max(0, Math.floor(Math.min(...ys))); y < Math.min(cv.height, Math.max(...ys)); y += 2)
+      for (let x = Math.max(0, Math.floor(Math.min(...xs))); x < Math.min(cv.width, Math.max(...xs)); x += 2) {
+        if (!inPoly(x, y, poly)) continue;
+        const i = (y * cv.width + x) * 4;
+        if (0.3 * px[i] + 0.59 * px[i + 1] + 0.11 * px[i + 2] < 235) ink++;
+      }
+    const n = normals[p.id], a = n.map(Math.abs), k = a.indexOf(Math.max(...a));
+    const key = ['x', 'y', 'z'][k] + (n[k] > 0 ? '+' : '-');
+    dirs[key] = (dirs[key] || 0) + ink;
+  }
+  const up = dirs['y+'] || 0;
+  const [best, val] = Object.entries(dirs).sort((a, b) => b[1] - a[1])[0] || ['y+', 0];
+  if (best === 'y+' || val < 50 || up >= 0.9 * val) return null;   // tasarım zaten üstte ya da baskı yok
+  const v = { 'x+': [1, 0, 0], 'x-': [-1, 0, 0], 'y-': [0, -1, 0], 'z+': [0, 0, 1], 'z-': [0, 0, -1] }[best];
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(...v), new THREE.Vector3(0, 1, 0));
+  if (best === 'y-') q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);   // tam ters: X ekseninde 180°
+  return q.toArray().map(x => +x.toFixed(6));
+}
+
+function showInfo() {
+  const s = viewer.closedSize();
+  $('info').textContent = s ? `${S.panels.filter(p => !p.scrap).length} panel · ${S.hinges.filter(h => h.tree).length} kat · kapalı ölçü ${s.x.toFixed(1)} × ${s.z.toFixed(1)} × ${s.y.toFixed(1)} mm` : '';
+}
+
+function setFlatBtn() {
+  const flat = viewer.mode === 'flat';
+  if (!flat) leaveFlat();   // zaman çubuğu, Oynat, yeni dosya: açık hâlden çıkınca bıçak izi eski hâline
+  $('btnFlat').classList.toggle('on', flat);
+  $('btnFlat').textContent = flat ? 'Kapalı hâli' : 'Açık hâli';
+}
+
+// ───────────────────────── akış ─────────────────────────
+// her yükleme/yeniden kurma bir numara alır; await'ten dönünce numara eskiyse sessizce çekilir.
+// Böylece üst üste iki dosya açılsa bile sadece sonuncusu ekrana gelir, veriler karışmaz.
+let buildId = 0, loadId = 0;
+async function rebuildGeometry() {
+  const my = ++buildId, isStale = () => my !== buildId;
+  const has = r => S.groups.some(g => S.roles[g.key] === r);
+  if (!has('kesim')) {
+    S.panels = []; S.hinges = []; S.bbox = null;
+    draw2D(); drawGroups(); drawHinges();
+    $('secGroups').open = true;
+    status('Kesim çizgisi bulunamadı. Bıçak KESIM/BICAK spotunda ya da kırmızı olmalı. Değilse Çizgi grupları\'ndan elle seç.', true);
+    return;
+  }
+  const noKat = !has('kat');
+  const topo = buildTopology(S.paths, S.roles);
+  if (!topo || !topo.panels.length) {
+    S.panels = []; S.hinges = []; S.bbox = null;
+    draw2D(); drawGroups(); drawHinges();
+    $('secGroups').open = true;
+    status('Kapalı panel bulunamadı. Kesim konturu kapalı mı, çizgi rolleri doğru mu?', true);
+    return;
+  }
+  Object.assign(S, { panels: topo.panels, hinges: topo.hinges, bbox: topo.bbox });
+  if (S.baseId !== null && !S.panels[S.baseId]) S.baseId = null;
+  buildTree();
+  if (!await renderArt(isStale) || isStale()) return;
+  refreshAll();
+  const orphan = S.panels.filter(p => p.depth === -1 && !p.scrap).length;
+  if (orphan) $('secGroups').open = true;
+  const [x0, y0, x1, y1] = S.bbox;
+  status(`${S.name}: ${S.panels.filter(p => !p.scrap).length} panel, ${S.hinges.filter(h => h.tree).length} kat · açınım ${((x1 - x0) * PT2MM).toFixed(1)} × ${((y1 - y0) * PT2MM).toFixed(1)} mm` +
+    (orphan ? ` · ⚠ ${orphan} panel hiçbir kata bağlı değil` : ''), noKat);
+  if (noKat) {
+    $('secGroups').open = true;
+    status(`${S.name}: kat çizgisi bulunamadı. Kesim ve kat aynı renkte olabilir: katları ayrı renge (KAT spotu ya da yeşil) al, ya da Çizgi grupları'ndan elle seç.`, true);
+  }
+}
+
+function refreshAll() {
+  draw2D(); drawGroups(); drawHinges();
+  viewer.load(viewerData());
+  if (!S.orient && !S.orientChecked) {   // yeni dosya: tasarımlı yüzü üste getir, "Başa dön" de buraya döner
+    S.orientChecked = true;
+    const o = autoOrient();
+    if (o) { S.orient = o; S.autoOrient = o; viewer.setOrient(o, true); }
+  }
+  $('rngT').value = 1000; setFlatBtn(); showInfo();
+  for (const b of ['btnPin', 'btnSave', 'btnPng', 'btnVideo', 'btnPlay', 'rngT', 'btnFlat', 'btnDie', 'btnExport']) $(b).disabled = !S.panels.length;
+}
+
+// keep: güncellemede (dosya yeniden okunurken) korunacak o anki ayarlar
+async function loadBuffer(buf, name, keep = null) {
+  const my = ++loadId;
+  status(`${name} okunuyor…`);
+  try {
+    const head = new TextDecoder().decode(new Uint8Array(buf.slice(0, 1024)));
+    if (!head.includes('%PDF')) throw new Error('Bu dosya PDF içermiyor. Illustrator\'da "PDF uyumlu dosya oluştur" seçeneği açık kaydet.');
+    // önce spot adları: pdf.js tamponu worker'a devredip boşaltıyor
+    let spots = new Map();
+    try { spots = await spotColors(buf); } catch (e) { console.warn('Spot adları okunamadı', e); }
+    const r = await parsePdf(buf);
+    if (my !== loadId) return;   // daha yeni bir dosya açıldı
+    const { groups, roles, why } = buildGroups(r.paths, spots);
+    const sig = await dielineSig(r.paths, roles);
+    Object.assign(S, { name, sig, autoRoles: { ...roles }, pinned: null, pdf: r.pdf, page: r.page, occ: r.occ, paths: r.paths, groups, roles, why, spots, baseId: null, baseManual: false, settings: {}, orient: null, autoOrient: null, orientChecked: false, selHinge: null, varak: null, foil: null });
+    $('drop').style.display = 'none';
+    $('expName').value = name.replace(/\.(pdf|ai)$/i, '');
+    if (!r.paths.length) { status('Dosyada hiç çizgi (stroke) bulunamadı.', true); return; }
+    const saved = await pinGet(sig);
+    if (my !== loadId) return;
+    if (keep) {
+      // Illustrator'dan kaydedildi: operatörün o anki ayarları kalsın. Bıçak değiştiyse panel numaraları kayabilir,
+      // taban otomatiğe döner; açılar menteşe konumuyla eşleştiği için değişmeyen katlar açısını korur.
+      const k = { ...keep.data }; if (keep.sig !== sig) k.taban = null;
+      applySettings(k);
+      await rebuildGeometry();
+      if (my !== loadId) return;   // bu arada başka dosya açıldı: onun durumuna yazma
+      S.pinned = keep.sig === sig ? keep.pinned : saved ? settingsJson() : null;
+      status(`${name}: güncellendi (${new Date().toLocaleTimeString('tr-TR')})${keep.sig !== sig ? ' · bıçak değişmiş, taban yeniden seçildi' : ''}.`);
+    } else if (saved) {
+      applySettings(saved);
+      S.pinned = settingsJson();
+      await rebuildGeometry();
+      if (my !== loadId) return;
+      S.pinned = settingsJson();   // taban/açı varsayılanları tamamlandıktan sonraki hâli
+      status(`${name}: sabit ayar yüklendi (${saved.tarih || 'tarih yok'}${saved.dosya && saved.dosya !== name ? `, ilk kez ${saved.dosya} ile sabitlenmişti` : ''}).`);
+    } else {
+      // önceki dosyanın sabit kartonu bu dosyaya taşınmasın
+      if (S.cardFromPin) { $('selCard').value = '#ffffff'; viewer.setCard('#ffffff'); S.cardFromPin = false; }
+      await rebuildGeometry();
+    }
+    pinUi();
+  } catch (e) {
+    console.error(e);
+    status('Hata: ' + e.message, true);
+  }
+}
+
+// dosya girişleri
+// Tarayıcı dosyanın diskteki yerini vermez; sunucu Spotlight'ta ad + boyut + tarihle bulur.
+// Yol bulununca "Illustrator'da aç" ve "Güncelle" açılır, dosya kaydedildikçe 3D kendini yeniler.
+async function openFile(f) {
+  S.path = null; S.mtime = f.lastModified / 1000; fileUi();
+  await loadBuffer(await f.arrayBuffer(), f.name);
+  if (!await serverOk) return;   // web'de dosyanın yeri bulunamaz
+  try {
+    const r = await fetch('bul', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ad: f.name, boyut: f.size, mtime: f.lastModified / 1000 }) });
+    const d = r.ok ? await r.json() : {};
+    if (S.name === f.name) { S.path = d.yol || null; fileUi(); }
+  } catch {}
+}
+function fileUi() {
+  $('btnAi').disabled = $('btnReload').disabled = !S.path;
+  const t = S.path ? S.path.replace(/^\/Users\/[^/]+/, '~') : 'Dosyanın diskteki yeri bulunamadı (Baslat.command ile açılmalı, dosya Spotlight\'ta aranabilir olmalı)';
+  $('btnAi').title = S.path ? `${t}\nIllustrator'da aç. Kaydedince 3D kendiliğinden güncellenir.` : t;
+  $('btnReload').title = S.path ? `${t}\nDiskten yeniden oku; açılar, roller ve duruş korunur.` : t;
+}
+async function reloadFile() {
+  if (!S.path) return;
+  try { const d = await (await fetch('durum?yol=' + encodeURIComponent(S.path), { cache: 'no-store' })).json(); if (!d.yok) S.mtime = d.mtime; } catch {}
+  const r = await fetch('dosya?yol=' + encodeURIComponent(S.path), { cache: 'no-store' });
+  if (!r.ok) { status('Dosya okunamadı: taşınmış ya da silinmiş olabilir.', true); return; }
+  const keep = { data: settingsData(), sig: S.sig, pinned: S.pinned };
+  const path = S.path;
+  await loadBuffer(await r.arrayBuffer(), path.split('/').pop(), keep);
+  S.path = path; fileUi();
+}
+$('btnReload').onclick = reloadFile;
+$('btnAi').onclick = async () => {
+  const r = await fetch('illustrator', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ yol: S.path }) });
+  const d = await r.json().catch(() => ({}));
+  status(r.ok ? `${S.name} ${d.uygulama || 'Illustrator'}'da açıldı. Kaydedince 3D kendiliğinden güncellenir.` : `Illustrator'da açılamadı: ${d.hata || r.status}`, !r.ok);
+};
+// kaydedildi mi? tarih değişip boyut iki okumada sabit kalınca (Illustrator yazmayı bitirince) yeniden yükle
+let lastSeen = null, reloading = false;
+setInterval(async () => {
+  if (!S.path || reloading || document.hidden) return;
+  try {
+    const d = await (await fetch('durum?yol=' + encodeURIComponent(S.path), { cache: 'no-store' })).json();
+    if (d.yok || Math.abs(d.mtime - S.mtime) < 0.01) { lastSeen = null; return; }
+    if (!lastSeen || lastSeen.boyut !== d.boyut || lastSeen.mtime !== d.mtime) { lastSeen = d; return; }
+    reloading = true; lastSeen = null; S.mtime = d.mtime;
+    await reloadFile();
+  } catch {} finally { reloading = false; }
+}, 1200);
+$('file').onchange = async e => { const f = e.target.files[0]; if (f) openFile(f); e.target.value = ''; };
+async function loadUrl(url) {
+  try {
+    const r = await fetch(url); if (!r.ok) throw new Error(r.status);
+    await loadBuffer(await r.arrayBuffer(), url.split('/').pop());
+  } catch (e) {
+    status(`Örnek yüklenemedi (${e.message}). Örnekler için Baslat.command ile aç ya da PDF'i sürükle.`, true);
+  }
+}
+const drop = $('drop');
+view.addEventListener('dragover', e => { e.preventDefault(); drop.style.display = 'flex'; drop.classList.add('over'); });
+view.addEventListener('dragleave', () => { drop.classList.remove('over'); if (S.panels.length) drop.style.display = 'none'; });
+view.addEventListener('drop', async e => {
+  e.preventDefault(); drop.classList.remove('over');
+  const f = e.dataTransfer.files[0]; if (f) openFile(f);
+});
+
+// zaman çubuğu ve görünüm
+$('rngT').oninput = () => { viewer.stop(); playEnd(); viewer.setT($('rngT').value / 1000); setFlatBtn(); };
+function playEnd() { $('btnPlay').textContent = '▶ Oynat'; }
+// bıçak izi: açık hâle geçince kendiliğinden açılır, kapalı hâle dönünce önceki durumuna döner
+const dieOn = () => $('btnDie').classList.contains('on');
+function setDie(on) { $('btnDie').classList.toggle('on', on); viewer.setOverlay(on); }
+let dieBeforeFlat = null;   // açık hâle geçmeden önceki durum; null = açık hâlde değiliz
+function leaveFlat() { if (dieBeforeFlat !== null) { setDie(dieBeforeFlat); dieBeforeFlat = null; } }
+function play(onEnd) {
+  leaveFlat();
+  // taban elle seçiliyken Devir'le bakılmış olabilir: Oynat kaydedilen (tabanın üstündeki) duruşta bitsin
+  if (S.baseManual) viewer.setOrient(S.orient || [0, 0, 0, 1], false);
+  $('btnPlay').textContent = '■ Durdur';
+  viewer.play(+$('selDur').value, v => { $('rngT').value = Math.round(v * 1000); }, () => { playEnd(); onEnd && onEnd(); });
+  setFlatBtn();
+}
+$('btnPlay').onclick = () => { if (viewer.playing) { viewer.stop(); playEnd(); } else play(); };
+$('btnFlat').onclick = () => {
+  playEnd();
+  if (viewer.mode === 'flat') { viewer.showClosed(); $('rngT').value = 1000; leaveFlat(); }
+  else { dieBeforeFlat = dieOn(); viewer.showFlat(); $('rngT').value = 0; setDie(true); }
+  setFlatBtn();
+};
+$('btnDie').onclick = () => setDie(!dieOn());
+$('selCard').onchange = () => viewer.setCard($('selCard').value);
+$('selFoil').onchange = () => { S.varak = $('selFoil').value; viewer.setFoil(FOIL_COLORS[S.varak] || null); };
+
+
+// kaydet / yükle
+const download = (blob, name) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); };
+const baseName = () => S.name.replace(/\.(pdf|ai)$/i, '');
+$('btnSave').onclick = () => {
+  const data = settingsData();
+  download(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), `${baseName()}_3d.json`);
+};
+// ayar nesnesini duruma uygula (JSON dosyası ve sabit ayar aynı biçim)
+function applySettings(d) {
+  if (d.roller) Object.assign(S.roles, d.roller);
+  S.settings = d.katlar || {};
+  S.baseId = d.taban ?? null;
+  S.baseManual = d.taban !== undefined && d.taban !== null && d.tabanElle !== false;
+  S.orient = keepOnBase(d.durus || null);
+  if (d.durus || S.baseManual) S.orientChecked = true;
+  if (d.karton) { $('selCard').value = d.karton; viewer.setCard(d.karton); S.cardFromPin = true; }
+  if (d.varak) S.varak = d.varak;   // renderArt maske çıkınca seçim kutusuna yazar
+}
+const settingsData = () => ({ dosya: S.name, taban: S.baseManual ? S.baseId : null, roller: S.roles, katlar: S.settings, durus: S.orient || null, karton: $('selCard').value, varak: S.foil ? S.varak : undefined });
+const settingsJson = () => { const d = settingsData(); delete d.dosya; return JSON.stringify(d); };
+
+// ── sabit ayar: sunucu ayarlar/<imza>.json olarak saklar ──
+// imza bıçağın geometrisinden: kesim + kat çizgileri, 0,1 mm'ye yuvarlanmış, bıçağın sol üst köşesine göre.
+// Dosya adı ya da tasarım değişse de bıçak aynıysa imza aynı kalır.
+async function dielineSig(paths, roles) {
+  let die = paths.filter(p => roles[p.group] === 'kesim' || roles[p.group] === 'kat');
+  if (!die.length) die = paths;
+  let x0 = Infinity, y0 = Infinity;
+  for (const p of die) for (const q of p.pts) { x0 = Math.min(x0, q[0]); y0 = Math.min(y0, q[1]); }
+  const r = v => Math.round(v * PT2MM * 10);
+  const lines = die.map(p => { const a = p.pts.map(q => `${r(q[0] - x0)},${r(q[1] - y0)}`); const b = [...a].reverse(); return (a.join(' ') < b.join(' ') ? a : b).join(' '); }).sort();
+  const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(lines.join('\n')));
+  return [...new Uint8Array(h)].slice(0, 16).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+// Yerel sunucu (Baslat.command) varsa ayar dosyaya yazılır ve Illustrator bağlantısı çalışır.
+// Web'de (GitHub Pages) sunucu yok: sabit ayar bu tarayıcının hafızasına yazılır, Illustrator butonları gizlenir.
+const serverOk = fetch('durum', { cache: 'no-store' })
+  .then(r => r.ok && (r.headers.get('content-type') || '').includes('json')).catch(() => false);
+serverOk.then(ok => { if (!ok) for (const b of ['btnAi', 'btnReload']) $(b).style.display = 'none'; });
+const LS = sig => 'dieline3d:ayar:' + sig;
+async function pinGet(sig) {
+  if (!await serverOk) { try { const t = localStorage.getItem(LS(sig)); return t ? JSON.parse(t) : null; } catch { return null; } }
+  try { const r = await fetch(`ayar/${sig}`, { cache: 'no-store' }); const d = r.ok ? await r.json() : null; return d && !d.yok ? d : null; } catch { return null; }
+}
+async function pinPut(sig, d) {
+  if (!await serverOk) { localStorage.setItem(LS(sig), JSON.stringify(d)); return 'tarayıcı'; }
+  const r = await fetch(`ayar/${sig}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) });
+  if (!r.ok) throw new Error(r.status);
+  return 'dosya';
+}
+async function pinDelete(sig) {
+  if (!await serverOk) { try { localStorage.removeItem(LS(sig)); } catch {} return; }
+  try { await fetch(`ayar/${sig}`, { method: 'DELETE' }); } catch {}
+}
+function pinUi() {
+  const has = !!S.pinned, dirty = has && (S.pinned !== settingsJson() || viewer.anyOpen);
+  $('btnPin').disabled = !S.panels.length;
+  $('btnPin').textContent = !has ? 'Ayarları sabitle' : dirty ? 'Değişikliği sabitle ●' : 'Sabitlendi ✓';
+  $('btnPin').classList.toggle('primary', !has || dirty);
+  $('btnUnpin').disabled = !has;
+}
+setInterval(() => { if (S.sig) pinUi(); }, 700);   // açı/rol/taban değişince buton "değişikliği sabitle"ye döner
+$('btnPin').onclick = async () => {
+  // Sabitle = "gördüğün hâl kutunun son hâli": çift tıkla açılmış parçalar o anki açılarıyla tabloya yazılır
+  const baked = viewer.bakeOpen();
+  for (const b of baked) S.settings[b.key].angle = b.angle;
+  if (baked.length) { drawHinges(); viewer.update(); showInfo(); }
+  const d = { ...settingsData(), tarih: new Date().toLocaleString('tr-TR') };
+  try {
+    const where = await pinPut(S.sig, d);
+    S.pinned = settingsJson(); S.cardFromPin = true; pinUi();
+    status(`${S.name}: ayarlar sabitlendi${where === 'tarayıcı' ? ' (bu tarayıcıya; başka bilgisayarda görünmez)' : ''}. Bu bıçak tekrar açılınca kendiliğinden gelecek.` +
+      (baked.length ? ` Açık bıraktığın ${baked.map(b => `P${b.pid + 1} (${b.angle}°)`).join(', ')} bu hâliyle kaydedildi.` : ''));
+  } catch (e) {
+    status(`Sabitlenemedi (${e.message}).`, true);
+  }
+};
+$('btnUnpin').onclick = async () => {
+  if (!confirm('Bu bıçağın sabit ayarı silinsin ve otomatik ayarlara dönülsün mü?')) return;
+  await pinDelete(S.sig);
+  S.pinned = null;
+  S.roles = { ...S.autoRoles }; S.settings = {}; S.baseId = null; S.baseManual = false;
+  S.orient = null; S.autoOrient = null; S.orientChecked = false;
+  $('selCard').value = '#ffffff'; viewer.setCard('#ffffff');
+  S.varak = null;
+  await rebuildGeometry(); pinUi();
+  status(`${S.name}: sabit ayar silindi, otomatik ayarlar kullanılıyor.`);
+};
+
+$('fileJson').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    applySettings(JSON.parse(await f.text()));
+    await rebuildGeometry();
+    status(`Ayarlar yüklendi: ${f.name}`);
+  } catch (err) { status('Ayar dosyası okunamadı: ' + err.message, true); }
+  e.target.value = '';
+};
+$('btnPng').onclick = () => {
+  viewer.renderer.domElement.toBlob(b => download(b, `${baseName()}_3d.png`), 'image/png');
+};
+$('btnVideo').onclick = () => {
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+  const type = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
+  if (!type) { status('Bu tarayıcı video kaydını desteklemiyor.', true); return; }
+  const stream = viewer.renderer.domElement.captureStream(30);
+  const rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 8e6 });
+  const chunks = [];
+  rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+  rec.onstop = () => {
+    download(new Blob(chunks, { type }), `${baseName()}_katlama.${type.includes('mp4') ? 'mp4' : 'webm'}`);
+    $('btnVideo').disabled = false; status('Video kaydedildi.');
+  };
+  $('btnVideo').disabled = true; status('Video kaydediliyor…');
+  viewer.setT(0);
+  rec.start();
+  setTimeout(() => play(() => setTimeout(() => rec.stop(), 1200)), 500);
+};
+
+// ───────────────────────── müşteri dosyası ─────────────────────────
+const THREE_URL = 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js';
+const ORBIT_URL = 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+const TEXTS = {
+  tr: { play: '▶ Tekrar oynat', flat: 'Açık hâli', closed: 'Kapalı hâli', die: 'Bıçak izi',
+        tip: 'Devir', spin: 'Çevir', home: 'Başa dön', zin: 'Yakınlaş', zout: 'Uzaklaş',
+        orbit: 'Döndür: sürükleyince etrafında dön', pan: 'Taşı: sürükleyince kaydır', fit: 'Sığdır',
+        hint: 'Sürükle: döndür · Tekerlek veya iki parmak: yakınlaştır · Çift tıkla: kapağı aç/kapat', err: 'Bu dosya 3D görüntü için WebGL gerektirir. Güncel Chrome, Safari veya Edge ile açın.' },
+  en: { play: '▶ Play again', flat: 'Flat view', closed: 'Folded view', die: 'Dieline',
+        tip: 'Tip over', spin: 'Turn', home: 'Reset', zin: 'Zoom in', zout: 'Zoom out',
+        orbit: 'Orbit: drag to look around', pan: 'Pan: drag to move the view', fit: 'Fit to screen',
+        hint: 'Drag to rotate · Scroll or pinch to zoom · Double-click: open/close a flap', err: 'This file needs WebGL for 3D. Please open it in a recent Chrome, Safari or Edge.' },
+};
+const blobToDataURL = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); });
+const escHtml = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+async function buildCustomerHtml(title, lang) {
+  const [threeJs, orbitJs] = await Promise.all([THREE_URL, ORBIT_URL].map(async u => {
+    const r = await fetch(u); if (!r.ok) throw new Error(`${u} indirilemedi`); return blobToDataURL(new Blob([await r.text()], { type: 'text/javascript' }));
+  }));
+  const d = viewerData();
+  const size = viewer.closedSize();
+  const dims = size ? `${Math.round(size.x)} × ${Math.round(size.z)} × ${Math.round(size.y)} mm` : '';
+  const data = { ...d, art: undefined, home: undefined, foil: undefined, artUrl: S.art.toDataURL('image/jpeg', 0.9),
+    foilUrl: S.foil ? S.foil.toDataURL('image/jpeg', 0.85) : null };   // maske siyah-beyaz: JPEG PNG'nin ~1/6'sı
+  const json = JSON.stringify(data).replace(/</g, '\\u003c');
+  const T = TEXTS[lang];
+  const S_ = '<' + '/script>';
+  return `<!DOCTYPE html>
+<html lang="${lang}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>${escHtml(title)}</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#cfcdc6;color:#1d1d1b;font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;overflow:hidden;-webkit-user-select:none;user-select:none;touch-action:manipulation}
+body{display:flex;flex-direction:column}
+header{padding:14px 20px;background:#fff;display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
+header h1{font-size:18px;margin:0}
+header span{color:#6b6a64}
+#view{flex:1;min-height:0;position:relative;touch-action:none}
+#view canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
+#hint{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:#1d1d1bcc;color:#fff;padding:6px 12px;border-radius:14px;font-size:13px;pointer-events:none;transition:opacity .4s;width:max-content;max-width:92%;text-align:center}
+nav{display:flex;gap:10px;justify-content:center;padding:12px;background:#fff;flex-wrap:wrap}
+
+nav button{font:inherit;font-size:16px;padding:10px 18px;border-radius:10px;border:1px solid #cfcdc6;background:#fff;color:#1d1d1b;cursor:pointer;min-width:140px}
+nav button:hover{border-color:#6b6a64}
+nav button.on{background:#1d1d1b;color:#fff;border-color:#1d1d1b}
+#err{display:none;padding:40px;text-align:center}
+</style>
+<script type="importmap">{"imports":{"three":"${threeJs}","three/addons/controls/OrbitControls.js":"${orbitJs}"}}${S_}
+</head>
+<body>
+<header><h1>${escHtml(title)}</h1><span>${escHtml(dims)}</span></header>
+<div id="view"><div id="hint">${escHtml(T.hint)}</div></div>
+<div id="err">${escHtml(T.err)}</div>
+<nav>
+  <button id="bPlay">${escHtml(T.play)}</button>
+  <button id="bFlat">${escHtml(T.flat)}</button>
+  <button id="bDie">${escHtml(T.die)}</button>
+</nav>
+
+<script type="application/json" id="data">${json}${S_}
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+const createViewer = ${createViewer.toString()};
+const T = ${JSON.stringify(T)};
+const $ = id => document.getElementById(id);
+const data = JSON.parse($('data').textContent);
+const img = new Image(), foilImg = new Image();
+const start = () => {
+  let v;
+  try { v = createViewer(THREE, OrbitControls, $('view'), { labels: T, onTurn: () => flatBtn() }); } catch (e) { $('view').style.display = 'none'; $('err').style.display = 'block'; return; }
+  data.art = img;
+  v.load(data);
+  const hide = () => { $('hint').style.opacity = 0; };
+  $('view').addEventListener('dblclick', hide, { once: true });
+  setTimeout(hide, 9000);
+  const flatBtn = () => { const f = v.mode === 'flat'; $('bFlat').classList.toggle('on', f); $('bFlat').textContent = f ? T.closed : T.flat; };
+  $('bPlay').onclick = () => { v.play(4); flatBtn(); };
+  $('bFlat').onclick = () => { v.mode === 'flat' ? v.showClosed() : v.showFlat(); flatBtn(); };
+  $('bDie').onclick = () => { const on = !$('bDie').classList.contains('on'); $('bDie').classList.toggle('on', on); v.setOverlay(on); };
+  setTimeout(() => v.play(4), 600);
+};
+// varak maskesi varsa önce o da yüklensin
+img.onload = () => { if (!data.foilUrl) return start(); foilImg.onload = () => { data.foil = foilImg; start(); }; foilImg.src = data.foilUrl; };
+img.src = data.artUrl;
+${S_}
+</body>
+</html>`;
+}
+
+$('btnExport').onclick = async () => {
+  const title = $('expName').value.trim() || baseName();
+  const btn = $('btnExport'); btn.disabled = true; status('Müşteri dosyası hazırlanıyor…');
+  try {
+    const html = await buildCustomerHtml(title, $('expLang').value);
+    const file = title.replace(/[\\/:*?"<>|]+/g, '_') + '_3D.html';
+    download(new Blob([html], { type: 'text/html' }), file);
+    status(`Müşteri dosyası hazır: ${file} (${(html.length / 1048576).toFixed(1)} MB)`);
+  } catch (e) {
+    console.error(e);
+    status('Müşteri dosyası oluşturulamadı: ' + e.message + ' (internet bağlantısı gerekli)', true);
+  }
+  btn.disabled = false;
+};
+
+window.__dieline = { S, parsePdf, buildTopology, loadUrl, viewer, buildCustomerHtml, viewerData };
+const q = new URLSearchParams(location.search).get('pdf');
+if (q) loadUrl(q);
+</script>
+</body>
+</html>
