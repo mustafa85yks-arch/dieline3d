@@ -163,7 +163,10 @@ const $ = id => document.getElementById(id);
 const status = (msg, err) => { const s = $('status'); s.textContent = msg; s.className = err ? 'err' : ''; };
 
 const CUT_RE = /kes[iı]m|cut|die|b[iı]çak|bicak|stanz|kontur|contour|d[ée]coupe/i;
-const CREASE_RE = /^kat|\bkat\b|katlama|b[iı]ğa|biga|pilyaj|pliaj|crease|fold|rill|\bnut\b|rainage/i;
+const CREASE_RE = /^kat|\bkat\b|katlama|b[iı]ğa|biga|pilyaj|pliaj|crease|fold|rill|\bnut\b|rainage|k[iı]rma/i;
+// KIRMA = kavisli kat (Mustafa'nın işareti). Şimdilik düz kat gibi katlanır; sonraki adımda araç iki kavisli kat
+// arasındaki alanı düz şeritlere bölüp kıvrımı parça parça gösterecek (yol haritası: kırma yöntemi)
+const CURVED_RE = /k[iı]rma/i;
 // varak (hot foil): spot ya da katman adı. Rengi addan tahmin edilir, adında renk yoksa altın (Mustafa'nın kararı)
 const FOIL_RE = /varak|foil|folie|yald[iı]z|hot.?stamp|sıcak baskı|shiny/i;
 const FOIL_COLORS = { altin: '#f7c440', gumus: '#eeeef3', bakir: '#f0a078' };
@@ -394,7 +397,7 @@ function buildGroups(paths, spots = new Map()) {
     const nr = byName(g);
     let role = 'yok', w = '';
     if (dieLayers.length && !dieLayers.includes(g.layer)) w = 'dieline katmanında değil';
-    else if (nr === 'kesim' || nr === 'kat') { role = nr; w = 'spot adı'; }
+    else if (nr === 'kesim' || nr === 'kat') { role = nr; w = (spots.get(g.color) || []).some(n => CURVED_RE.test(n)) ? 'kavisli kat (KIRMA)' : 'spot adı'; }
     else if (nr === 'çakışma') { role = 'kesim'; w = 'aynı renkte hem kesim hem kat spotu var'; }
     else if (named) w = 'dieline spotu değil';
     else if (Math.min(r, gg, b) > 200) w = 'çok açık renk';
@@ -407,6 +410,211 @@ function buildGroups(paths, spots = new Map()) {
   return { groups, roles, why };
 }
 
+// Perforasyon (yırtma çizgisi): kesim renginde ama karton bütün kalır, panel bulmada kesim sayılmaz.
+// Tanıma: kesikli stilde çizilmiş kesim ya da aynı doğru üstünde, aralarında boşluk olan en az 3 kısa (≤8 mm) düz parça.
+// Uç uca değen parçalar sayılmaz: bazı CAD çıktıları düz kesimi parçalayarak yazar.
+function markPerf(paths, roles) {
+  const MAXL = 8 / PT2MM, GAP = 0.2 / PT2MM;
+  const lines = new Map();
+  for (const p of paths) {
+    p.perf = false;
+    if (roles[p.group] !== 'kesim') continue;
+    if (p.dash) { p.perf = true; continue; }
+    if (p.pts.length !== 2 || p.closed) continue;
+    const [a, b] = p.pts, L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (L > MAXL || L < 0.2 / PT2MM) continue;
+    let th = Math.atan2(b[1] - a[1], b[0] - a[0]); if (th < 0) th += Math.PI; if (th >= Math.PI - 1e-9) th -= Math.PI;
+    const c = -Math.sin(th) * a[0] + Math.cos(th) * a[1];   // doğrunun başlangıca uzaklığı
+    const key = `${Math.round(th * 180 / Math.PI) % 180}|${Math.round(c * PT2MM / 0.5)}`;
+    if (!lines.has(key)) lines.set(key, { th, list: [] });
+    lines.get(key).list.push(p);
+  }
+  let n = 0;
+  for (const { th, list } of lines.values()) {
+    if (list.length < 3) continue;
+    const u = [Math.cos(th), Math.sin(th)], pr = q => q[0] * u[0] + q[1] * u[1];
+    const iv = list.map(p => { const t = p.pts.map(pr); return [Math.min(...t), Math.max(...t)]; }).sort((x, y) => x[0] - y[0]);
+    let gaps = 0; for (let i = 1; i < iv.length; i++) if (iv[i][0] - iv[i - 1][1] > GAP) gaps++;
+    if (gaps < (iv.length - 1) / 2) continue;   // parçalar çoğunlukla uç uca: düz kesim
+    for (const p of list) p.perf = true;
+    n++;
+  }
+  return n;
+}
+
+// ── Kırma (kavisli kat): Mustafa'nın yöntemi, 29 Eyl 2026 ──
+// KIRMA spotundaki her yay eşit yay aralığıyla N noktaya bölünür. İki yayın buluştuğu köşeden sayarak aynı sıradaki
+// noktalar birleşir: bunlar kırma çizgileri (kat). Hangi yaylar birleşir: köşede açı sırasına göre yan yana duran ve
+// aralarında başka kesim/kat çizgisi olmayan iki yay (perforasyon sayılmaz). İki ucu da ortak olan çift mercektir
+// (çizgiler bir uçtan öbür uca); bir yayın öbür ucunda başka bir yelpaze eşi varsa yelpaze yarıda biter (ortadaki
+// nokta iki yelpazenin buluştuğu yer); öbür uç boştaysa (V) çizgiler sona kadar gider.
+const KIRMA_N = 21, KIRMA_KOSE = 2.5;   // yay başına nokta; köşe sayılan uç yakınlığı (mm)
+function kirmaBul(paths, roles, spots, N = KIRMA_N) {
+  const R = KIRMA_KOSE / PT2MM;
+  const isK = p => roles[p.group] === 'kat' && (spots.get(p.color) || []).some(n => CURVED_RE.test(n));
+  for (const p of paths) p.kirmaYay = isK(p);   // buildTopology uçlarını kesim köşesine bağlar
+  const arcs = paths.filter(p => isK(p) && !p.closed && p.pts.length >= 2).map(p => {
+    const L = [0]; for (let i = 1; i < p.pts.length; i++) L.push(L[i - 1] + Math.hypot(p.pts[i][0] - p.pts[i - 1][0], p.pts[i][1] - p.pts[i - 1][1]));
+    const at = s => { let j = 1; while (j < L.length - 1 && L[j] < s) j++;
+      const t = (s - L[j - 1]) / ((L[j] - L[j - 1]) || 1), a = p.pts[j - 1], b = p.pts[j]; return [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]; };
+    const tot = L[L.length - 1];
+    return { path: p, len: tot, n: Array.from({ length: N }, (_, k) => at(tot * k / (N - 1))),
+      yon: [at(Math.min(tot / 2, 3 / PT2MM)), at(Math.max(tot / 2, tot - 3 / PT2MM))], uc: [null, null] };
+  }).filter(a => a.len > 2 * R);
+  if (!arcs.length) return null;
+  // köşeler: yay uçlarını yakınlığa göre topla
+  const corners = [];
+  arcs.forEach(a => [0, 1].forEach(e => {
+    const p = a.n[e ? N - 1 : 0];
+    let ci = corners.findIndex(c => Math.hypot(c.p[0] - p[0], c.p[1] - p[1]) < R);
+    if (ci < 0) { ci = corners.length; corners.push({ p: p.slice(), uclar: [] }); }
+    corners[ci].uclar.push([arcs.indexOf(a), e]); a.uc[e] = ci;
+  }));
+  for (const c of corners) c.p = [0, 1].map(q => c.uclar.reduce((s, [ai, e]) => s + arcs[ai].n[e ? N - 1 : 0][q], 0) / c.uclar.length);
+  // köşedeki ışınlar: yaylar + köşede biten ya da köşeden geçen diğer kesim ve kat çizgileri
+  const diger = paths.filter(p => !isK(p) && !p.perf && (roles[p.group] === 'kesim' || roles[p.group] === 'kat'));
+  const pairs = new Map();
+  corners.forEach((c, ci) => {
+    if (c.uclar.length < 2) return;
+    const ray = (q, tag) => ({ ang: Math.atan2(q[1] - c.p[1], q[0] - c.p[0]), tag });
+    const rays = c.uclar.map(([ai, e]) => ray(arcs[ai].yon[e], [ai, e]));
+    for (const p of diger) {
+      const ic = p.pts.map(q => Math.hypot(q[0] - c.p[0], q[1] - c.p[1]) < R);
+      for (let i = 0; i < ic.length; i++) {
+        if (!ic[i]) continue;
+        if (i > 0 && !ic[i - 1]) rays.push(ray(p.pts[i - 1], null));
+        if (i + 1 < ic.length && !ic[i + 1]) rays.push(ray(p.pts[i + 1], null));
+      }
+      // köşeye nokta düşmeden yanından geçen uzun düz parça: iki yönü de ışın
+      for (let i = 0; i + 1 < p.pts.length; i++) {
+        if (ic[i] || ic[i + 1]) continue;
+        const [a, b] = [p.pts[i], p.pts[i + 1]], dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1e-9;
+        const t = ((c.p[0] - a[0]) * dx + (c.p[1] - a[1]) * dy) / L2;
+        if (t > 0 && t < 1 && Math.hypot(a[0] + t * dx - c.p[0], a[1] + t * dy - c.p[1]) < R) rays.push(ray(a, null), ray(b, null));
+      }
+    }
+    rays.sort((x, y) => x.ang - y.ang);
+    for (let i = 0; i < rays.length; i++) {
+      const x = rays[i], y = rays[(i + 1) % rays.length];
+      if (!x.tag || !y.tag || x.tag[0] === y.tag[0]) continue;
+      const [a, b] = x.tag[0] < y.tag[0] ? [x.tag, y.tag] : [y.tag, x.tag];
+      const oa = arcs[a[0]].uc[1 - a[1]], ob = arcs[b[0]].uc[1 - b[1]];
+      const mercek = oa === ob && oa !== ci;
+      const key = mercek ? `m${a[0]}-${b[0]}` : `y${a[0]}.${a[1]}-${b[0]}.${b[1]}`;
+      if (!pairs.has(key)) pairs.set(key, { a: a[0], ea: a[1], b: b[0], eb: b[1], kose: ci, tip: mercek ? 'mercek' : 'yelpaze' });
+    }
+  });
+  let liste = [...pairs.values()];
+  const nok = (ai, e, k) => arcs[ai].n[e ? N - 1 - k : k];
+  // ── İkinci yıldız (Mustafa, 29 Eyl 2026: "kutu iki yıldızdan oluşmakta"): alt yıldız, üst yıldızın bir merceğin kirişine göre aynası.
+  // Hangi mercek: aynalanan köşeler açınımda gerçek bir çizgi noktasına denk gelen (kirma.ai'de ön mercek → F, H, G köşeleri).
+  // Alt yıldızın kenarları kesim de olabilir (belin yanları), KIRMA da (alt merceğin dış yayı, V yayları). Alt yıldız üst yıldızın
+  // yelpazeleriyle, aynalanmış olarak kırılır; kenarları üstünde duran KIRMA yaylarının kendi eşleşmesi (V) iptal edilir.
+  let altYildiz = null;
+  {
+    const say = new Map();
+    for (const q of liste) if (q.tip === 'yelpaze') for (const ai of [q.a, q.b]) say.set(ai, (say.get(ai) || 0) + 1);
+    const halka = liste.filter(q => q.tip === 'yelpaze' && say.get(q.a) >= 2 && say.get(q.b) >= 2);
+    const halkaYay = new Set(halka.flatMap(q => [q.a, q.b]));
+    const tumNokta = paths.filter(p => roles[p.group] === 'kesim' || roles[p.group] === 'kat').flatMap(p => p.pts);
+    for (const m of liste.filter(q => q.tip === 'mercek')) {
+      const ic = halkaYay.has(m.a) ? m.a : halkaYay.has(m.b) ? m.b : null;
+      if (ic === null || !halka.length) continue;
+      // ayna ekseni: merceğin iki yayının uçlarının ortası (dış yay köşede ~1,2 mm açık çizilir, kat payı)
+      const dis = ic === m.a ? m.b : m.a, eIc = ic === m.a ? m.ea : m.eb, eDis = ic === m.a ? m.eb : m.ea;
+      const u0 = nok(ic, eIc, 0), u1 = nok(ic, eIc, N - 1), v0 = nok(dis, eDis, 0), v1 = nok(dis, eDis, N - 1);
+      const A = [(u0[0] + v0[0]) / 2, (u0[1] + v0[1]) / 2], B = [(u1[0] + v1[0]) / 2, (u1[1] + v1[1]) / 2];
+      const dx = B[0] - A[0], dy = B[1] - A[1], L2 = dx * dx + dy * dy;
+      const ayna = p => { const t = ((p[0] - A[0]) * dx + (p[1] - A[1]) * dy) / L2, fx = A[0] + t * dx, fy = A[1] + t * dy; return [2 * fx - p[0], 2 * fy - p[1]]; };
+      const koseler = [...new Set(halka.map(q => q.kose))].map(ci => corners[ci].p).filter(p => Math.hypot(p[0] - A[0], p[1] - A[1]) > R && Math.hypot(p[0] - B[0], p[1] - B[1]) > R);
+      const tutan = koseler.filter(p => { const q = ayna(p); return tumNokta.some(v => Math.hypot(v[0] - q[0], v[1] - q[1]) < R); }).length;
+      if (koseler.length && tutan >= koseler.length - 1) { altYildiz = { mercek: m, ic, A, B, ayna, halka }; break; }
+    }
+    if (altYildiz) {
+      // aynalanmış kenarların üstünde duran KIRMA yayları alt yıldızın kenarı: kendi yelpazeleri (V) iptal, kanat da açmazlar
+      const kenar = [...halkaYay].map(ai => arcs[ai].n.map(altYildiz.ayna));
+      const uzak = p => Math.min(...kenar.map(K => { let b = Infinity; for (let i = 0; i + 1 < K.length; i++) {
+        const [a, c] = [K[i], K[i + 1]], ex = c[0] - a[0], ey = c[1] - a[1], t = Math.max(0, Math.min(1, ((p[0] - a[0]) * ex + (p[1] - a[1]) * ey) / (ex * ex + ey * ey || 1)));
+        b = Math.min(b, Math.hypot(p[0] - a[0] - t * ex, p[1] - a[1] - t * ey)); } return b; }));
+      altYildiz.yaylar = new Set(arcs.map((a, ai) => ai).filter(ai => !halkaYay.has(ai) && arcs[ai].n.slice(1, -1).every(p => uzak(p) < 1.5 / PT2MM)));   // uçlar köşeden ~1 mm önce biter
+      liste = liste.filter(q => !(q.tip === 'yelpaze' && altYildiz.yaylar.has(q.a) && altYildiz.yaylar.has(q.b)));
+    }
+  }
+  const esVar = (ai, e, haric) => liste.some(q => q !== haric && q.tip === 'yelpaze' && ((q.a === ai && q.ea === e) || (q.b === ai && q.eb === e)));
+  const lines = [];
+  for (const q of liste) {
+    q.son = q.tip === 'mercek' ? N - 2 : (esVar(q.a, 1 - q.ea, q) || esVar(q.b, 1 - q.eb, q)) ? (N - 1) >> 1 : N - 1;
+    q.cizgi = [];
+    for (let k = 1; k <= q.son; k++) {
+      const p = nok(q.a, q.ea, k), r = nok(q.b, q.eb, k);
+      if (Math.hypot(p[0] - r[0], p[1] - r[1]) < 0.3 / PT2MM) continue;
+      q.cizgi.push(lines.length); lines.push([p, r]);
+    }
+  }
+  if (altYildiz) {   // alt yıldızın kırma çizgileri: üst yıldız yelpazelerinin aynası
+    const q = { tip: 'altYildiz', a: altYildiz.ic, cizgi: [] };
+    for (const h of altYildiz.halka) for (let k = 1; k <= h.son; k++) {
+      q.cizgi.push(lines.length); lines.push([altYildiz.ayna(nok(h.a, h.ea, k)), altYildiz.ayna(nok(h.b, h.eb, k))]);
+    }
+    liste.push(q);
+  }
+  // ── Kanatlar (Mustafa, 29 Eyl 2026: "mantığı kurduğunda tümü için geçerli"): kavisli kata bağlı parça, katın kopyasının aynı yönde
+  // kaydırılmasıyla oluşur. Çizgileri PARALEL, katın kirişine (uçtan uca) dik, yayın her noktasından ilk kesime / KIRMA yayına / kırma
+  // çizgisine kadar. İlk halka: merceğin dış yayı (merceğin tersine). Çizgiler başka bir KIRMA yayına çarparsa o yay sıradaki kat olur
+  // (alt mercek → bel → F/G).
+  {
+    const yelpazeli = new Set(liste.filter(q => q.tip === 'yelpaze').flatMap(q => [q.a, q.b]));
+    const yapisal = new Set(liste.flatMap(q => [q.a, q.b]).concat(altYildiz ? [...altYildiz.yaylar] : []));
+    const seg = [];
+    for (const p of paths) if (roles[p.group] === 'kesim' && !p.perf) for (let i = 0; i + 1 < p.pts.length; i++) seg.push({ a: p.pts[i], b: p.pts[i + 1], tip: 'kesim' });
+    arcs.forEach((A, ai) => { for (let i = 0; i + 1 < A.path.pts.length; i++) seg.push({ a: A.path.pts[i], b: A.path.pts[i + 1], tip: 'yay', ai }); });
+    for (const [a, b] of lines) seg.push({ a, b, tip: 'cizgi' });
+    const isin = (o, d, haric) => {
+      let best = null;
+      for (const sg of seg) {
+        if (sg.ai === haric && sg.tip === 'yay') continue;
+        const ex = sg.b[0] - sg.a[0], ey = sg.b[1] - sg.a[1], den = d[0] * ey - d[1] * ex;
+        if (Math.abs(den) < 1e-9) continue;
+        const qx = sg.a[0] - o[0], qy = sg.a[1] - o[1];
+        const t = (qx * ey - qy * ex) / den, u = (qx * d[1] - qy * d[0]) / den;
+        if (t > 0.3 / PT2MM && u >= -1e-6 && u <= 1 + 1e-6 && (!best || t < best.t)) best = { t, sg, u };
+      }
+      return best;
+    };
+    const kirisDik = (n, yon) => { const kx = n[N - 1][0] - n[0][0], ky = n[N - 1][1] - n[0][1], kl = Math.hypot(kx, ky);
+      const d = [-ky / kl, kx / kl]; return d[0] * yon[0] + d[1] * yon[1] >= 0 ? d : [-d[0], -d[1]]; };
+    const kuyruk = [];
+    for (const m of liste.filter(q => q.tip === 'mercek')) for (const [ai, ki] of [[m.a, m.b], [m.b, m.a]]) {
+      if (yelpazeli.has(ai) || (altYildiz && altYildiz.yaylar.has(ai))) continue;   // yıldız kenarı; kanat açmaz
+      const n = arcs[ai].n, es = arcs[ki].n[(N - 1) >> 1], orta = n[(N - 1) >> 1];
+      kuyruk.push({ ai, u: kirisDik(n, [orta[0] - es[0], orta[1] - es[1]]), ust: null });
+    }
+    const islenen = new Set(kuyruk.map(x => x.ai));
+    while (kuyruk.length) {
+      const it = kuyruk.shift(), n = arcs[it.ai].n, u = it.u, kanat = [];
+      for (let k = 1; k < N - 1; k++) {
+        const t = [n[k + 1][0] - n[k - 1][0], n[k + 1][1] - n[k - 1][1]], tl = Math.hypot(...t);
+        if (Math.abs(t[0] * u[1] - t[1] * u[0]) / tl < 0.2) continue;   // çizgi yaya neredeyse teğet
+        const h = isin(n[k], u, it.ai);
+        if (!h) continue;
+        kanat.push({ k, B: [n[k][0] + u[0] * h.t, n[k][1] + u[1] * h.t], L: h.t });
+        const bi = h.sg.ai;
+        if (h.sg.tip === 'yay' && !yapisal.has(bi) && !islenen.has(bi)) {
+          islenen.add(bi);
+          kuyruk.push({ ai: bi, u: kirisDik(arcs[bi].n, u), ust: { ai: it.ai } });   // 3D'si üst kanadın yüzeyinden (kirmaCoz)
+        }
+      }
+      liste.push({ a: it.ai, tip: 'kanat', kose: null, u, ust: it.ust, kanat,
+        cizgi: kanat.map(x => { lines.push([n[x.k], x.B]); return lines.length - 1; }) });
+    }
+  }
+  if (!lines.length) return null;
+  const key = '(kırma)|#20a4b8|0', color = '#20a4b8';
+  const kp = lines.map(pts => ({ pts, closed: false, nodes: 2, curved: false, color, dash: false, layer: '(kırma)', group: key, kirma: true }));
+  const group = { key, layer: '', color, dash: false, paths: kp, spot: `Kırma çizgileri (KIRMA'dan, ${N} nokta)` };
+  return { arcs, corners, pairs: liste, lines, paths: kp, group, N, altYildiz };
+}
+
 // ───────────────────────── 2. Paneller (düzlemsel yüzler) ─────────────────────────
 function buildTopology(paths, roles) {
   const TOL = 0.6;  // pt ≈ 0.2 mm
@@ -414,9 +622,10 @@ function buildTopology(paths, roles) {
   for (const p of paths) {
     const role = roles[p.group];
     if (role !== 'kesim' && role !== 'kat') continue;
+    if (p.perf) continue;   // perforasyon: karton bütün, panel sınırı değil
     for (let i = 0; i + 1 < p.pts.length; i++) {
       const a = p.pts[i], b = p.pts[i + 1];
-      if (Math.hypot(b[0] - a[0], b[1] - a[1]) > 1e-3) segs.push({ a, b, type: role, ts: [0, 1] });
+      if (Math.hypot(b[0] - a[0], b[1] - a[1]) > 1e-3) segs.push({ a, b, type: role, ts: [0, 1], oto: !!p.kirma, yay: !!p.kirmaYay });
     }
   }
   if (!segs.length) return null;
@@ -424,8 +633,9 @@ function buildTopology(paths, roles) {
   // Kat çizgileri çoğu dieline'da kesimden 1–3 mm önce bilerek bitirilir. Boşta kalan bir kat ucunu
   // kendi doğrultusunda en fazla 4 mm uzat; o mesafede bir çizgiye çarpıyorsa oraya kadar çek.
   const EXT = 4 / PT2MM;
+  // üretilen kırma çizgileri yay ucuna tam değer: ucu "bağlı" saydırıp kesime köprüyü engellemesin
   const nearAny = (p, self) => segs.some(r => {
-    if (r === self) return false;
+    if (r === self || r.oto) return false;
     const dx = r.b[0] - r.a[0], dy = r.b[1] - r.a[1], L2 = dx * dx + dy * dy || 1e-9;
     const t = Math.max(0, Math.min(1, ((p[0] - r.a[0]) * dx + (p[1] - r.a[1]) * dy) / L2));
     return Math.hypot(p[0] - r.a[0] - t * dx, p[1] - r.a[1] - t * dy) < TOL;
@@ -433,7 +643,7 @@ function buildTopology(paths, roles) {
   const castRay = (p, dir, self) => {
     let best = null;
     for (const r of segs) {
-      if (r === self) continue;
+      if (r === self || r.oto) continue;
       const ex = r.b[0] - r.a[0], ey = r.b[1] - r.a[1], den = dir[0] * ey - dir[1] * ex;
       if (Math.abs(den) < 1e-9) continue;
       const qx = r.a[0] - p[0], qy = r.a[1] - p[1];
@@ -442,17 +652,47 @@ function buildTopology(paths, roles) {
     }
     return best;
   };
+  const SNAP = 1.5 / PT2MM, bridges = [];
+  // kesim köşeleri (uçlar ve 15°'den keskin dönüşler): KIRMA yayı kesimden ~1 mm önce biter, ucu teğet yönünde uzatılınca
+  // köşeyi geçip kesimin dışında öbür yayla kesişiyordu (bel dış alana karışıyordu). KIRMA ucu 1,5 mm içindeki köşeye bağlanır.
+  const kKose = [];
+  for (const p of paths) {
+    if (roles[p.group] !== 'kesim' || p.perf) continue;
+    p.pts.forEach((q, i) => {
+      const a = p.pts[i - 1], b = p.pts[i + 1];
+      if (!a || !b) { kKose.push(q); return; }
+      const t1 = Math.atan2(q[1] - a[1], q[0] - a[0]), t2 = Math.atan2(b[1] - q[1], b[0] - q[0]);
+      if (Math.abs(((t2 - t1 + 3 * Math.PI) % (2 * Math.PI)) - Math.PI) > 15 * Math.PI / 180) kKose.push(q);
+    });
+  }
   for (const sg of segs) {
-    if (sg.type !== 'kat') continue;
+    if (sg.type !== 'kat' || sg.oto) continue;
     const L = Math.hypot(sg.b[0] - sg.a[0], sg.b[1] - sg.a[1]);
     const d = [(sg.b[0] - sg.a[0]) / L, (sg.b[1] - sg.a[1]) / L];
     for (const [end, dir] of [['b', d], ['a', [-d[0], -d[1]]]]) {
       const p = sg[end];
       if (nearAny(p, sg)) continue;
+      if (sg.yay) {
+        let best = null;
+        for (const q of kKose) { const dd = Math.hypot(p[0] - q[0], p[1] - q[1]); if (dd <= SNAP && (!best || dd < best.d)) best = { d: dd, q }; }
+        if (best) { bridges.push({ a: p, b: best.q, type: 'kat', ts: [0, 1] }); continue; }
+      }
       const t = castRay(p, dir, sg);
-      if (t) sg[end] = [p[0] + dir[0] * t, p[1] + dir[1] * t];
+      if (t) { sg[end] = [p[0] + dir[0] * t, p[1] + dir[1] * t]; continue; }
+      // kavisli katta teğet yönündeki ışın köşeyi ıskalar: 1,5 mm içindeki en yakın KESİM çizgisine kısa köprü kur
+      // (kesimin üstündeki en yakın noktaya; başka bir çizginin ucuna değil)
+      let best = null;
+      for (const r of segs) {
+        if (r === sg || r.type !== 'kesim') continue;
+        const dx = r.b[0] - r.a[0], dy = r.b[1] - r.a[1], L2 = dx * dx + dy * dy || 1e-9;
+        const u = Math.max(0, Math.min(1, ((p[0] - r.a[0]) * dx + (p[1] - r.a[1]) * dy) / L2));
+        const q = [r.a[0] + u * dx, r.a[1] + u * dy], d = Math.hypot(p[0] - q[0], p[1] - q[1]);
+        if (d <= SNAP && (!best || d < best.d)) best = { d, q };
+      }
+      if (best) bridges.push({ a: p, b: best.q, type: 'kat', ts: [0, 1] });
     }
   }
+  segs.push(...bridges);
 
   // kesişim + T-bağlantı noktalarında böl
   const bb = s => [Math.min(s.a[0], s.b[0]) - TOL, Math.min(s.a[1], s.b[1]) - TOL, Math.max(s.a[0], s.b[0]) + TOL, Math.max(s.a[1], s.b[1]) + TOL];
@@ -515,6 +755,7 @@ function buildTopology(paths, roles) {
   let edges = [...edgeMap.values()];
 
   // sarkan kenarları buda (tek uçlu yarım kat izleri, çentikler)
+  if (window.dbg) window.dbg.topoIc = { segs, bridges, tum: edges.slice(), verts };
   for (;;) {
     const deg = new Array(verts.length).fill(0);
     for (const e of edges) { deg[e.u]++; deg[e.v]++; }
@@ -601,6 +842,7 @@ function buildTopology(paths, roles) {
     if (f.loop.some(h => { const o = faces[faceOf[h ^ 1]]; return o && o !== f && o.area > 0; })) dropped.add(f.id);
   }
 
+  if (window.dbg) Object.assign(window.dbg.topoIc, { faces, dropped, alias });
   const panels = [];
   const pmap = new Map();
   const MIN_AREA = 1 / (PT2MM * PT2MM);   // 1 mm²: üst üste binen çizgilerden doğan sıfır alanlı şeritler
@@ -678,24 +920,35 @@ function buildTree() {
   // otomatik taban: kat sayısı × alan en büyük panel. Kutunun tabanı dört duvara bağlıdır; büyük bir
   // kapak daha az kata, küçük bir yan panel daha küçük alana sahiptir.
   const score = p => nb.get(p.id).length * Math.abs(p.area);
-  S.autoBaseId = panels.reduce((a, b) => score(b) > score(a) ? b : a).id;
+  // bükülmüş parça (esnek kırımlar) varsa otomatik taban onun en büyük şeridi (kırma kutusunda tepedeki düz çokgen)
+  const bukulu = new Set(hinges.filter(h => S.settings[h.key] && S.settings[h.key].esnek).flatMap(h => [h.p, h.q]));
+  const aday = bukulu.size ? panels.filter(p => bukulu.has(p.id)) : panels;
+  S.autoBaseId = bukulu.size ? aday.reduce((a, b) => Math.abs(b.area) > Math.abs(a.area) ? b : a).id : aday.reduce((a, b) => score(b) > score(a) ? b : a).id;
   if (S.baseId === null || !panels[S.baseId]) S.baseId = S.autoBaseId;
   for (const p of panels) { p.parent = null; p.hinge = null; p.children = []; p.depth = -1; }
   for (const h of hinges) { h.tree = false; h.parent = null; h.child = null; }
   const base = panels[S.baseId]; base.depth = 0;
-  const q = [base.id];
-  while (q.length) {
-    const id = q.shift();
-    for (const hi of nb.get(id)) {
-      const h = hinges[hi], o = h.p === id ? h.q : h.p;
-      if (panels[o].depth !== -1) continue;
-      panels[o].depth = panels[id].depth + 1;
-      panels[o].parent = id; panels[o].hinge = hi;
-      panels[id].children.push(o);
-      h.tree = true; h.parent = id; h.child = o;
-      q.push(o);
+  // bükülmüş parça (esnek kırımlarla bağlı şeritler) önce kendi içinden dolaşılır; dış parçalara sonra geçilir.
+  // Yoksa ağaç bir mercek şeridine dıştaki düz bir kapağın üstünden ulaşır ve şerit yanlış yerde durur.
+  const esnekH = hi => { const st = S.settings[hinges[hi].key]; return !!(st && st.esnek); };
+  const yay = (q, sadeceEsnek) => {
+    for (let k = 0; k < q.length; k++) {
+      const id = q[k];
+      for (const hi of nb.get(id)) {
+        if (sadeceEsnek && !esnekH(hi)) continue;
+        const h = hinges[hi], o = h.p === id ? h.q : h.p;
+        if (panels[o].depth !== -1) continue;
+        panels[o].depth = panels[id].depth + 1;
+        panels[o].parent = id; panels[o].hinge = hi;
+        panels[id].children.push(o);
+        h.tree = true; h.parent = id; h.child = o;
+        q.push(o);
+      }
     }
-  }
+    return q;
+  };
+  const ulasilan = yay([base.id], true);
+  yay(ulasilan.slice(), false);
   // yarıklar: hiçbir kata bağlı olmayan çok küçük parçalar kesilip atılan deliklerdir, panel sayılmaz
   const maxAll = Math.max(...panels.map(p => Math.abs(p.area)));
   for (const p of panels) p.scrap = p.depth === -1 && Math.abs(p.area) < 0.02 * maxAll;
@@ -858,7 +1111,8 @@ function drawGroups() {
 
 function drawHinges() {
   const t = $('tblHinges');
-  const rows = S.hinges.map((h, i) => [h, i]).filter(([h]) => h.tree)
+  const nEsnek = S.hinges.filter(h => h.tree && S.settings[h.key] && S.settings[h.key].esnek).length;
+  const rows = S.hinges.map((h, i) => [h, i]).filter(([h]) => h.tree && !(S.settings[h.key] && S.settings[h.key].esnek))
     .sort((a, b) => S.settings[a[0].key].step - S.settings[b[0].key].step || S.panels[a[0].child].depth - S.panels[b[0].child].depth);
   t.innerHTML = '<tr><th>Kat</th><th>Açı°</th><th>Yön</th><th>Adım</th></tr>';
   for (const [h, i] of rows) {
@@ -878,7 +1132,8 @@ function drawHinges() {
     tr.onmouseleave = () => { tr.classList.remove('hl'); const l = $(`hl${i}`); if (l && S.selHinge !== i) l.setAttribute('opacity', 0); };
     t.appendChild(tr);
   }
-  if (!rows.length) t.innerHTML += '<tr><td colspan="4" class="hint">Kat bulunamadı. Çizgi gruplarının rolünü kontrol et.</td></tr>';
+  if (nEsnek) t.innerHTML += `<tr><td colspan="4" class="hint">Bükülmüş parça: ${nEsnek} kırım (esnek; tek tek açılmaz, açıları kırma çözümünden sabit)</td></tr>`;
+  if (!rows.length && !nEsnek) t.innerHTML += '<tr><td colspan="4" class="hint">Kat bulunamadı. Çizgi gruplarının rolünü kontrol et.</td></tr>';
   drawHingeSummary(); drawBaseSelect();
 }
 // bir parça seçilince (3D'de ya da açınımda tek tık) Katlar'da onu katlayan satırı göster
@@ -920,16 +1175,23 @@ function drawBaseButton(p) {
 }
 
 function selectPanel(pid) {
+  let p;
   $('baseBtn')?.remove();
   for (const r of document.querySelectorAll('#tblHinges tr.sel')) r.classList.remove('sel');
   if (S.selHinge != null) { const l = $(`hl${S.selHinge}`); if (l) l.setAttribute('opacity', 0); }
   S.selHinge = null;
   for (const e of document.querySelectorAll('#svg2d path.panel.sel')) e.classList.remove('sel');
-  const p = pid == null ? null : S.panels[pid];
+  p = pid == null ? null : S.panels[pid];
   if (!p || p.scrap) return;
   const pe = document.querySelector(`#svg2d path.panel[data-pid="${pid}"]`); if (pe) pe.classList.add('sel');
   drawBaseButton(p);
   $('secHinges').open = true;
+  const esnek = q => q.hinge != null && S.settings[S.hinges[q.hinge].key] && S.settings[S.hinges[q.hinge].key].esnek;
+  if (esnek(p)) {   // bükülmüş parçanın bir şeridi: parçayı bağlayan gerçek kat
+    while (esnek(p)) p = S.panels[p.parent];
+    if (p.hinge == null) { status('Bükülmüş parça tabanın kendisi: kendi katı yok. Kırımlar esnek, açıları sabit.'); return; }
+    status(`Bükülmüş parçanın bir şeridi seçildi. Parçayı bağlayan kat: P${p.parent + 1} → P${p.id + 1}.`);
+  }
   if (p.hinge == null) {   // taban ya da bağlantısız parça: satırı yok
     const b = $('selBase'); b.scrollIntoView({ block: 'center', behavior: 'smooth' }); b.focus();
     status(p.id === S.baseId ? `P${p.id + 1} taban: kutu buna göre katlanır, kendi katı yok.` : `P${p.id + 1} hiçbir kata bağlı değil.`, p.id !== S.baseId);
@@ -1153,7 +1415,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
         const pivot = new THREE.Group(); pivot.position.copy(a);
         const inner = new THREE.Group(); inner.position.copy(a).negate();
         pivot.add(inner); g.add(pivot);
-        pivots.push({ pivot, axis, sign, key: h.key, pid: h.child, open: 0, openTo: 0 });
+        pivots.push({ pivot, axis, sign, key: h.key, pid: h.child, parentPid: h.parent, open: 0, openTo: 0 });
         make(h.child, inner);
       }
     };
@@ -1296,7 +1558,11 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
   const canOpen = () => D && mode !== 'flat' && !playing;
   function toggleAt(x, y) {
     if (!canOpen()) return;
-    const pv = pick(x, y); if (!pv) return;
+    let pv = pick(x, y);
+    // kırım (esnek) şeridi tek başına açılmaz: bükülmüş parçayı bağlayan gerçek kata kadar çık
+    const byPid = new Map(pivots.map(q => [q.pid, q]));
+    while (pv && D.settings[pv.key] && D.settings[pv.key].esnek) pv = byPid.get(pv.parentPid) || null;
+    if (!pv) return;
     pv.openTo = pv.openTo ? 0 : 1; animateOpen();
     opts.onOpen && opts.onOpen();
   }
@@ -1659,6 +1925,7 @@ async function rebuildGeometry() {
     return;
   }
   const noKat = !has('kat');
+  S.perfLines = markPerf(S.paths, S.roles);
   const topo = buildTopology(S.paths, S.roles);
   if (!topo || !topo.panels.length) {
     S.panels = []; S.hinges = []; S.bbox = null;
@@ -1676,7 +1943,7 @@ async function rebuildGeometry() {
   if (orphan) $('secGroups').open = true;
   const [x0, y0, x1, y1] = S.bbox;
   status(`${S.name}: ${S.panels.filter(p => !p.scrap).length} panel, ${S.hinges.filter(h => h.tree).length} kat · açınım ${((x1 - x0) * PT2MM).toFixed(1)} × ${((y1 - y0) * PT2MM).toFixed(1)} mm` +
-    (orphan ? ` · ⚠ ${orphan} panel hiçbir kata bağlı değil` : ''), noKat);
+    (S.perfLines ? ` · ${S.perfLines} perforasyon` : '') + (orphan ? ` · ⚠ ${orphan} panel hiçbir kata bağlı değil` : ''), noKat);
   if (noKat) {
     $('secGroups').open = true;
     status(`${S.name}: kat çizgisi bulunamadı. Kesim ve kat aynı renkte olabilir: katları ayrı renge (KAT spotu ya da yeşil) al, ya da Çizgi grupları'ndan elle seç.`, true);
@@ -1708,8 +1975,14 @@ async function loadBuffer(buf, name, keep = null) {
     const r = await parsePdf(buf);
     if (my !== loadId) return;   // daha yeni bir dosya açıldı
     const { groups, roles, why } = buildGroups(r.paths, spots);
-    const sig = await dielineSig(r.paths, roles);
-    Object.assign(S, { name, sig, autoRoles: { ...roles }, pinned: null, pdf: r.pdf, page: r.page, occ: r.occ, paths: r.paths, groups, roles, why, spots, baseId: null, baseManual: false, settings: {}, orient: null, autoOrient: null, orientChecked: false, selHinge: null, varak: null, foil: null });
+    const sig = await dielineSig(r.paths, roles);   // imza dosyadaki çizgilerden: üretilen kırma çizgileri girmez
+    markPerf(r.paths, roles);
+    const kirma = kirmaBul(r.paths, roles, spots);
+    if (kirma) {
+      r.paths.push(...kirma.paths); groups.push(kirma.group);
+      roles[kirma.group.key] = 'kat'; why[kirma.group.key] = `KIRMA spotundan üretildi: ${kirma.pairs.filter(q => q.tip === 'yelpaze').length} yelpaze, ${kirma.pairs.filter(q => q.tip === 'mercek').length} mercek, ${kirma.pairs.filter(q => q.tip === 'kanat').length} kanat${kirma.altYildiz ? ', alt yıldız' : ''}`;
+    }
+    Object.assign(S, { name, sig, kirma, autoRoles: { ...roles }, pinned: null, pdf: r.pdf, page: r.page, occ: r.occ, paths: r.paths, groups, roles, why, spots, baseId: null, baseManual: false, settings: {}, orient: null, autoOrient: null, orientChecked: false, selHinge: null, varak: null, foil: null });
     $('drop').style.display = 'none';
     $('expName').value = name.replace(/\.(pdf|ai)$/i, '');
     if (!r.paths.length) { status('Dosyada hiç çizgi (stroke) bulunamadı.', true); return; }
@@ -1722,6 +1995,7 @@ async function loadBuffer(buf, name, keep = null) {
       applySettings(k);
       await rebuildGeometry();
       if (my !== loadId) return;   // bu arada başka dosya açıldı: onun durumuna yazma
+      if (S.kirma && !Object.values(S.settings).some(st => st.esnek)) await kirmaUygula();
       S.pinned = keep.sig === sig ? keep.pinned : saved ? settingsJson() : null;
       status(`${name}: güncellendi (${new Date().toLocaleTimeString('tr-TR')})${keep.sig !== sig ? ' · bıçak değişmiş, taban yeniden seçildi' : ''}.`);
     } else if (saved) {
@@ -1735,6 +2009,8 @@ async function loadBuffer(buf, name, keep = null) {
       // önceki dosyanın sabit kartonu bu dosyaya taşınmasın
       if (S.cardFromPin) { $('selCard').value = '#ffffff'; viewer.setCard('#ffffff'); S.cardFromPin = false; }
       await rebuildGeometry();
+      // kırma kutusu: bükülmüş parçanın şekli ve esnek kırımlar kendiliğinden (sabit ayar varsa o geçerli, buraya girilmez)
+      if (S.kirma && my === loadId && S.panels.length) await kirmaUygula();
     }
     pinUi();
   } catch (e) {
@@ -1835,6 +2111,250 @@ $('btnDie').onclick = () => setDie(!dieOn());
 $('selCard').onchange = () => viewer.setCard($('selCard').value);
 $('selFoil').onchange = () => { S.varak = $('selFoil').value; viewer.setFoil(FOIL_COLORS[S.varak] || null); };
 
+
+// ── Kırma çözümü (deneme): kavisli parçanın 3D şekli dışarıda hesaplanır (kirma_besgen.py → JSON), buradaki şeritlere aktarılır.
+// Merkezi çözümün bir üçgeninin içine düşen şeritler bükülmüş parçaya dahil (A–D gibi dıştakiler düşmez); aralarındaki kırımlar "esnek" (tek tek açılmaz,
+// Katlar'da listelenmez). Açı = iki şeridin çözümdeki yüzey normalleri arası; yön editörün katladığı sonuçla karşılaştırılır.
+// ── Kırma şekli (kirma_besgen.py --mercek'in editördeki hâli). Şekil hesaplanmaz, verilir:
+// yıldız = yarıda biten yelpazelerin halkası (kenar yayları + köşeler). Mercekler köşelere oturur ve dik iner (dikey perde);
+// mercek esnemesin diye yıldız kenarının k. noktasının yüksekliği h_k = M_k / 2 (M_k = merceğin k. çizgisinin açınım boyu),
+// dış yay −M_k/2'de. Her yelpaze çizgisi yatay ve açınım boyunda, kenar boyunca nokta aralığı korunur → şeritler esnemez.
+// Şimdilik düzgün yıldız varsayımı: köşeler merkezden eşit uzaklıkta, açıları açınımdaki gibi; ölçüler ortalamadan.
+function kirmaCoz(K) {
+  if (!K) return { hata: 'KIRMA bulunamadı' };
+  const N = K.N, yari = (N - 1) >> 1, mm = p => [p[0] * PT2MM, p[1] * PT2MM];
+  const unit3 = a => { const L = Math.hypot(...a) || 1; return a.map(v => v / L); };
+  const yel = K.pairs.filter(q => q.tip === 'yelpaze' && q.son === yari);
+  const halka = [...new Set(yel.flatMap(q => [q.a, q.b]))];
+  const koseIdx = [...new Set(yel.map(q => q.kose))];
+  const n = koseIdx.length;
+  if (n < 3 || halka.length !== n || yel.length !== n) return { hata: `yıldız kapanmıyor (${n} köşe, ${halka.length} kenar yayı)` };
+  const kenar = halka.map(ai => K.arcs[ai].n.map(mm));
+  const hi = ai => halka.indexOf(ai);
+  const kose_id = new Map();   // "i,e" → köşe sırası (0..n-1)
+  for (const q of yel) { const j = koseIdx.indexOf(q.kose); kose_id.set(`${hi(q.a)},${q.ea}`, j); kose_id.set(`${hi(q.b)},${q.eb}`, j); }
+  if (kose_id.size !== 2 * n) return { hata: 'yıldız kenarları köşelere tam oturmuyor' };
+  const kk = (i, e) => kose_id.get(`${i},${e}`);
+  const koseler = koseIdx.map((_, j) => { const u = [...kose_id].filter(([, v]) => v === j).map(([s]) => s.split(',').map(Number));
+    return [0, 1].map(c => u.reduce((s, [i, e]) => s + kenar[i][e ? N - 1 : 0][c], 0) / u.length); });
+  const cx = koseler.reduce((s, p) => s + p[0], 0) / n, cy = koseler.reduce((s, p) => s + p[1], 0) / n;
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  const kenarlari = j => [...kose_id].filter(([, v]) => v === j).map(([s]) => s.split(',').map(Number));
+  const sira = (i, e, k) => kenar[i][e === 0 ? k : N - 1 - k];
+  const Ls = Array(yari + 1).fill(0);
+  for (let j = 0; j < n; j++) { const [[i1, e1], [i2, e2]] = kenarlari(j); for (let k = 1; k <= yari; k++) Ls[k] += dist(sira(i1, e1, k), sira(i2, e2, k)) / n; }
+  const boy = kenar.reduce((s, K2) => s + K2.slice(1).reduce((t, p, k) => t + dist(p, K2[k]), 0), 0) / n;
+  const adim = boy / (N - 1);
+  // mercekler: bir yayı yıldız kenarı olan mercek çiftleri
+  const mercekler = [];
+  for (const q of K.pairs.filter(q => q.tip === 'mercek')) {
+    const [ic, dis] = hi(q.a) >= 0 ? [q.a, q.b] : hi(q.b) >= 0 ? [q.b, q.a] : [null];
+    if (ic == null) continue;
+    const i = hi(ic), ei = ic === q.a ? q.ea : q.eb, ej = ic === q.a ? q.eb : q.ea;
+    const icp = Array.from({ length: N }, (_, k) => sira(i, ei, k)), disp = Array.from({ length: N }, (_, k) => mm(K.arcs[dis].n[ej === 0 ? k : N - 1 - k]));
+    mercekler.push({ i, ei, dis: disp, M: icp.map((p, k) => dist(p, disp[k])), ai: dis, ej });
+  }
+  if (!mercekler.length) return { hata: 'yıldıza bağlı mercek yok: yükseklik kuralı (h = M/2) uygulanamıyor' };
+  const Mort = Array.from({ length: N }, (_, k) => mercekler.reduce((s, m) => s + m.M[k] + m.M[N - 1 - k], 0) / (2 * mercekler.length));
+  const h = Array.from({ length: yari + 1 }, (_, k) => Mort[k] / 2);
+  const d = [0];
+  for (let k = 0; k < yari; k++) {
+    const kare = adim ** 2 - ((Ls[k + 1] - Ls[k]) / 2) ** 2 - (h[k + 1] - h[k]) ** 2;
+    if (kare < 0) return { hata: `mercek bu noktada fazla geniş, karton yetmiyor (k=${k}→${k + 1})` };
+    d.push(d[k] + Math.sqrt(kare));
+  }
+  const R = d[yari] + (Ls[yari] / 2) / Math.tan(Math.PI / n);
+  const aci0 = koseler.map(p => Math.atan2(p[1] - cy, p[0] - cx));
+  const kose3 = aci0.map(a => [R * Math.cos(a), R * Math.sin(a)]);
+  const idx = new Map(), P2 = [], P3 = [];
+  const nokta = (i, k) => {
+    const e = k === 0 ? 0 : k === N - 1 ? 1 : null;
+    const key = e !== null ? `kose${kk(i, e)}` : `${i},${k}`;
+    if (idx.has(key)) return idx.get(key);
+    idx.set(key, P2.length);
+    P2.push(e === null ? kenar[i][k] : koseler[kk(i, e)]);
+    const uc = k <= yari ? 0 : 1, kx = uc === 0 ? k : N - 1 - k, j = kk(i, uc), a = aci0[j];
+    const u = [-Math.cos(a), -Math.sin(a)], v = [-u[1], u[0]];
+    const diger = kenarlari(j).find(([ii]) => ii === i);
+    const q = sira(i, diger[1], 1);
+    const taraf = ((q[0] - koseler[j][0]) * v[0] + (q[1] - koseler[j][1]) * v[1]) > 0 ? 1 : -1;
+    const [x3, z3] = kose3[j];
+    P3.push([x3 + u[0] * d[kx] + v[0] * taraf * Ls[kx] / 2, h[kx], z3 + u[1] * d[kx] + v[1] * taraf * Ls[kx] / 2]);
+    return idx.get(key);
+  };
+  for (let i = 0; i < n; i++) for (let k = 0; k < N; k++) nokta(i, k);
+  const tri = [], renk = [];
+  for (let j = 0; j < n; j++) {
+    const [[i1, e1], [i2, e2]] = kenarlari(j);
+    const s1 = k => nokta(i1, e1 === 0 ? k : N - 1 - k), s2 = k => nokta(i2, e2 === 0 ? k : N - 1 - k);
+    for (let k = 0; k < yari; k++) {
+      tri.push([s1(k), s1(k + 1), s2(k + 1)]); renk.push(0);
+      if (k) { tri.push([s1(k), s2(k + 1), s2(k)]); renk.push(0); }
+    }
+  }
+  for (const m of mercekler) {
+    const e = Array.from({ length: N }, (_, k) => nokta(m.i, m.ei === 0 ? k : N - 1 - k));
+    const o = [e[0]];
+    for (let k = 1; k < N - 1; k++) {
+      o.push(P2.length); P2.push(m.dis[k]);
+      const [x, y, z] = P3[e[k]], kx = k <= yari ? k : N - 1 - k;
+      P3.push([x, y - 2 * h[kx], z]);
+    }
+    o.push(e[N - 1]); m.o = o;
+    for (let k = 0; k < N - 1; k++) {
+      if (o[k] === e[k]) { tri.push([e[k], e[k + 1], o[k + 1]]); renk.push(1); }
+      else if (o[k + 1] === e[k + 1]) { tri.push([e[k], e[k + 1], o[k]]); renk.push(1); }
+      else { tri.push([e[k], e[k + 1], o[k + 1]], [e[k], o[k + 1], o[k]]); renk.push(1, 1); }
+    }
+  }
+  // Kanatlar (Mustafa'nın örneği + "tümü için geçerli"): kavisli kata bağlı parçanın çizgileri paralel → 3D'de hepsi tek ortak yönde (w).
+  // Karton esnemesin diye kattaki her noktada çizgi ile kat arasındaki açı iki yanda aynı: kat bir düzlemde duruyorsa w, komşu parçanın
+  // çizgi yönünün (katta biten, mercekte "aşağı") o düzleme göre aynası. B = A + L·w. Zincir: alt katın 3D'si üst kanadın yüzeyinden.
+  let kanat = 0, kanatDuzlem = 0;
+  const yay3 = new Map();   // yay → { nokta: r → çözüm noktası, w: komşu parçanın katta biten çizgi yönü }
+  for (const m of mercekler) yay3.set(m.ai, { nokta: r => m.o[m.ej === 0 ? r : N - 1 - r], w: [0, -1, 0] });
+  for (const q of K.pairs.filter(q => q.tip === 'kanat')) {
+    const Y = yay3.get(q.a);
+    if (!Y) continue;
+    const oi = Y.nokta;
+    const K0 = P3[oi(0)], K1 = P3[oi(N - 1)], Or = P3[oi(yari)];
+    const u1 = K1.map((v, c) => v - K0[c]), u2 = Or.map((v, c) => v - K0[c]);
+    const nv = unit3([u1[1] * u2[2] - u1[2] * u2[1], u1[2] * u2[0] - u1[0] * u2[2], u1[0] * u2[1] - u1[1] * u2[0]]);
+    for (let r = 0; r < N; r++) kanatDuzlem = Math.max(kanatDuzlem, Math.abs(P3[oi(r)].reduce((t, v, c) => t + (v - K0[c]) * nv[c], 0)));
+    const dn = Y.w.reduce((t, v, c) => t + v * nv[c], 0);
+    const w = Y.w.map((v, c) => v - 2 * dn * nv[c]);
+    let onceki = null;
+    for (const x of q.kanat) {
+      const A = P3[oi(x.k)], L = x.L * PT2MM, bi = P2.length;
+      P2.push(mm(x.B)); P3.push(A.map((v, c) => v + L * w[c]));
+      if (!onceki) { tri.push([oi(x.k - 1), oi(x.k), bi]); renk.push(2); }
+      else if (onceki.k === x.k - 1) { tri.push([oi(onceki.k), oi(x.k), bi], [oi(onceki.k), bi, onceki.bi]); renk.push(2, 2); }
+      onceki = { k: x.k, bi };
+    }
+    if (onceki) { tri.push([oi(onceki.k), oi(onceki.k + 1), onceki.bi]); renk.push(2); }
+    kanat++;
+    // bu kanadın çizgilerinin çarptığı alt katlar: noktalarının 3D'si bu kanadın yüzeyinde (üst yaydaki nokta + boy·w)
+    // Kanat bir silindir: açınımdaki bir nokta = çizgiye dik konumu (s) + çizgi boyunca konumu (v). 3D = yaydaki A(s) + (v − v_yay(s))·w.
+    // Yayın bittiği yerden öte (bel alt merceğin yayından geniş) kanat çizgisiz düz parça: son şerit düz uzatılır.
+    const n2 = K.arcs[q.a].n, uu = q.u, ee = [-uu[1], uu[0]];
+    const sk = n2.map(p => p[0] * ee[0] + p[1] * ee[1]), vk = n2.map(p => p[0] * uu[0] + p[1] * uu[1]);
+    const art = sk[N - 1] > sk[0];
+    const yer3 = p => {
+      const sp = p[0] * ee[0] + p[1] * ee[1], vp = p[0] * uu[0] + p[1] * uu[1];
+      let j = 0; while (j < N - 2 && (art ? sk[j + 1] < sp : sk[j + 1] > sp)) j++;
+      const f = (sp - sk[j]) / ((sk[j + 1] - sk[j]) || 1e-9), a0 = P3[oi(j)], a1 = P3[oi(j + 1)];
+      const A = a0.map((v, c) => v + f * (a1[c] - v)), vy = vk[j] + f * (vk[j + 1] - vk[j]);
+      return A.map((v, c) => v + (vp - vy) * PT2MM * w[c]);
+    };
+    for (const c of K.pairs.filter(c => c.tip === 'kanat' && c.ust && c.ust.ai === q.a)) {
+      const idx = K.arcs[c.a].n.map(p => { P2.push(mm(p)); P3.push(yer3(p)); return P2.length - 1; });
+      yay3.set(c.a, { nokta: r => idx[r], w });
+    }
+  }
+  // tepedeki düz çokgen: kenar ortası noktaları
+  const orta = Array.from({ length: n }, (_, i) => nokta(i, yari)).sort((a, b) => Math.atan2(P2[a][1] - cy, P2[a][0] - cx) - Math.atan2(P2[b][1] - cy, P2[b][0] - cx));
+  for (let t = 1; t < n - 1; t++) { tri.push([orta[0], orta[t], orta[t + 1]]); renk.push(0); }
+  // alt yıldız: üst yıldızın üçgenleri, açınımda mercek kirişine göre aynalı, 3D'de y ters (mercekler +h'den −h'ye dik iner: alt kenar = aynası)
+  if (K.altYildiz) {
+    const [A, B] = [K.altYildiz.A, K.altYildiz.B].map(mm), dx = B[0] - A[0], dy = B[1] - A[1], L2 = dx * dx + dy * dy;
+    const ayna = p => { const t = ((p[0] - A[0]) * dx + (p[1] - A[1]) * dy) / L2; return [2 * (A[0] + t * dx) - p[0], 2 * (A[1] + t * dy) - p[1]]; };
+    const yeni = new Map(), ust = tri.length;
+    const kopya = i => { if (!yeni.has(i)) { yeni.set(i, P2.length); P2.push(ayna(P2[i])); P3.push([P3[i][0], -P3[i][1], P3[i][2]]); } return yeni.get(i); };
+    for (let t = 0; t < ust; t++) if (renk[t] === 0) { tri.push(tri[t].map(kopya)); renk.push(3); }
+  }
+  // esneme raporu: her üçgen kenarının 3D boyu − açınım boyu
+  let enUzun = -Infinity, enKisa = Infinity;
+  for (const t of tri) for (const [a, b] of [[t[0], t[1]], [t[1], t[2]], [t[2], t[0]]]) {
+    const f = Math.hypot(...P3[a].map((x, c) => x - P3[b][c])) - dist(P2[a], P2[b]);
+    enUzun = Math.max(enUzun, f); enKisa = Math.min(enKisa, f);
+  }
+  return { P2, P3, tri, renk, merkez: [0, 0], rapor: { kose: n, mercek: mercekler.length, kanat, kanat_duzlem_mm: +kanatDuzlem.toFixed(2), tepe_mm: +h[yari].toFixed(2), esneme_mm: [+enKisa.toFixed(2), +enUzun.toFixed(2)] } };
+}
+
+// T: kirmaCoz sonucu ya da eski dış çözüm dosyasının adresi (kirma_besgen.py → JSON)
+async function kirmaUygula(T = kirmaCoz(S.kirma)) {
+  if (typeof T === 'string') T = await (await fetch(T, { cache: 'no-store' })).json();
+  if (!T || T.hata) { status(`Kırma şekli hesaplanamadı: ${T ? T.hata : 'çözüm yok'}. Kırma katları düz bırakıldı, açıları elle ver.`, true); return null; }
+  const PT = PT2MM, [mx, my] = T.merkez;
+  const sol2 = T.P2.map(([x, y]) => [x + mx, y + my]);
+  const sub = (a, b) => a.map((v, i) => v - b[i]), dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const unit = a => { const L = Math.hypot(...a) || 1; return a.map(v => v / L); };
+  // açınımdaki bir noktayı çözümün hangi üçgeninde olduğunu bulup 3D'ye taşı (üçgen içi oran)
+  const bary = (p, t) => {
+    const [a, b, c] = t.map(i => sol2[i]);
+    const d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+    const l1 = ((b[1] - c[1]) * (p[0] - c[0]) + (c[0] - b[0]) * (p[1] - c[1])) / d;
+    const l2 = ((c[1] - a[1]) * (p[0] - c[0]) + (a[0] - c[0]) * (p[1] - c[1])) / d;
+    return [l1, l2, 1 - l1 - l2];
+  };
+  const ucgen = (p, tol = 0) => { let best = null;
+    for (const t of T.tri) { const l = bary(p, t), m = Math.min(...l); if (m >= -tol && (!best || m > best[1])) best = [t, m, l]; }
+    return best; };
+  const map3 = p => { const u = ucgen(p, 0.05); if (!u) return null; const [t, , l] = u;
+    return [0, 1, 2].map(q => l[0] * T.P3[t[0]][q] + l[1] * T.P3[t[1]][q] + l[2] * T.P3[t[2]][q]); };
+  const triN = t => {   // çözüm üçgeninin baskı yüzü yönlü normali
+    let [a, b, c] = t; const f = i => [sol2[i][0], 0, sol2[i][1]];
+    if (cross(sub(f(b), f(a)), sub(f(c), f(a)))[1] < 0) [b, c] = [c, b];
+    return unit(cross(sub(T.P3[b], T.P3[a]), sub(T.P3[c], T.P3[a])));
+  };
+  const solN = new Map();
+  for (const p of S.panels) {
+    if (p.scrap) continue;
+    // şeridin merkezi çözümün içinde mi; değilse (uç şeridin çoğu çözümün dışında kalabilir, düz parça) köşelerinden biri
+    let u = ucgen([p.c[0] * PT, p.c[1] * PT]);
+    if (!u) for (const q of p.pts) {
+      const dx = p.c[0] - q[0], dy = p.c[1] - q[1], L = Math.hypot(dx, dy) || 1, e = Math.min(0.5 / PT, L / 2);
+      if ((u = ucgen([(q[0] + dx / L * e) * PT, (q[1] + dy / L * e) * PT]))) break;
+    }
+    if (u) solN.set(p.id, triN(u[0]));
+  }
+  // bükülmüş parçanın iç kırımları (iki yanı da çözümde olan her menteşe) esnek: ağaç önce bunlar üzerinden kurulur
+  for (const h of S.hinges) {
+    if (!S.settings[h.key]) S.settings[h.key] = { angle: 0, dir: 1, step: 1 };
+    if (solN.has(h.p) && solN.has(h.q)) S.settings[h.key].esnek = true; else delete S.settings[h.key].esnek;
+  }
+  // taban: bükülmüş parçanın en büyük şeridi (buildTree otomatik seçer). Operatör tabanı elle seçtiyse ona dokunulmaz.
+  if (!S.baseManual) S.baseId = null;
+  for (const k in S.settings) delete S.settings[k].step;
+  buildTree(); refreshAll();
+  const Dv = viewer._debug();
+  const grup = pid => { let g = null; Dv.model.traverse(o => { if (o.userData.pid === pid && !g) g = o; }); g.updateMatrixWorld(true); return g.matrixWorld.elements; };
+  const dunyaN = pid => { const e = grup(pid); return unit([e[4], e[5], e[6]]); };
+  const dunyaP = (pid, p) => { const e = grup(pid), x = p[0] * PT, z = p[1] * PT; return [e[0] * x + e[8] * z + e[12], e[1] * x + e[9] * z + e[13], e[2] * x + e[10] * z + e[14]]; };
+  const agac = S.hinges.filter(h => h.tree);
+  const derinlik = new Map();
+  for (const h of agac) { const d = S.panels[h.child].depth; if (!derinlik.has(d)) derinlik.set(d, []); derinlik.get(d).push(h); }
+  let esnek = 0;
+  for (const [, hs] of [...derinlik].sort((a, b) => a[0] - b[0])) {
+    for (const h of hs) {
+      const np = solN.get(h.parent), nc = solN.get(h.child), st = S.settings[h.key];
+      st.dir = 1;
+      if (st.esnek) { st.angle = +(Math.acos(Math.max(-1, Math.min(1, dot(np, nc)))) * 180 / Math.PI).toFixed(1); st.step = 1; esnek++; }
+      else st.angle = 0;   // kuralı henüz olmayan parça: şimdilik düz
+    }
+    viewer.update(); viewer.setT(1, false);
+    for (const h of hs) {
+      const np = solN.get(h.parent), nc = solN.get(h.child);
+      if (!np || !nc || S.settings[h.key].angle < 0.5) continue;
+      const A3 = map3([h.a[0] * PT, h.a[1] * PT]), B3 = map3([h.b[0] * PT, h.b[1] * PT]);
+      if (!A3 || !B3) continue;
+      const sS = Math.sign(dot(cross(np, nc), sub(B3, A3)));
+      const sE = Math.sign(dot(cross(dunyaN(h.parent), dunyaN(h.child)), sub(dunyaP(h.parent, h.b), dunyaP(h.parent, h.a))));
+      if (sS && sE && sS !== sE) S.settings[h.key].dir = -1;
+    }
+    viewer.update(); viewer.setT(1, false);
+  }
+  drawHinges(); showInfo();
+  const r = T.rapor || {};
+  status(`Kırma: ${solN.size} şerit tek bükülmüş parça, ${esnek} esnek kırım` + (r.kose ? ` · ${r.kose} köşe, ${r.mercek} mercek${r.kanat ? `, ${r.kanat} kanat` : ''}, tepe ${r.tepe_mm} mm, esneme ${r.esneme_mm[0]}/+${r.esneme_mm[1]} mm` : '') + '.');
+  return { serit: solN.size, esnek, rapor: r };
+}
+// bükülmüş parçayı tek başına görmek için: kirma_besgen.html?canli
+const kirmaGoster = () => { const T = kirmaCoz(S.kirma); if (T.hata) return T.hata;
+  const n = T.P2.length, cx = T.P2.reduce((s, p) => s + p[0], 0) / n, cy = T.P2.reduce((s, p) => s + p[1], 0) / n;
+  localStorage.setItem('dieline3d:kirmaCozum', JSON.stringify({ ...T, P2: T.P2.map(p => [p[0] - cx, p[1] - cy]), katlar: [] })); return T.rapor; };
+if (window.dbg) Object.assign(window.dbg, { kirmaUygula, kirmaCoz, kirmaGoster, loadUrl, buildTopology });
 
 // kaydet / yükle
 const download = (blob, name) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); };

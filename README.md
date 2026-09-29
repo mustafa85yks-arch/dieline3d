@@ -3,7 +3,7 @@
 Illustrator'da çizilen kutu açınımını (AI/PDF) tarayıcıda 3D'ye çevirir:
 tasarımı kutunun üstünde görürsün, düz açınımdan kutuya katlanma animasyonunu izlersin.
 
-Geliştirme planı ve not listesi: [YOL_HARITASI.md](YOL_HARITASI.md)
+Web adresi: https://mustafa85yks-arch.github.io/dieline3d/
 
 ## Açma
 
@@ -41,6 +41,8 @@ Web'de iki fark var:
   ya da *Çizgi grupları*'ndan elle seç.
 - Her grubun neden o rolü aldığı *Çizgi grupları* tablosunda yazar. Gerekirse oradan elle düzeltilir.
 - Kesim konturu kapalı olmalı. Kat çizgilerinin uçları kontura değmeli (0,2 mm tolerans; 4 mm'ye kadar kısa kalan kat uzatılır).
+- **Perforasyon:** kesim renginde kesikli çizgi (kesikli stil ya da aralıklı kısa parçalar) perforasyon sayılır; karton bütün kalır,
+  panel sınırı oluşturmaz, bıçak izinde kesikli görünür.
 
 ## Nasıl çalışır
 
@@ -119,6 +121,11 @@ Tek bir `…_3D.html` dosyası iner (örnek kutularda 2–3 MB). E-postayla gön
 ## Sınırlar
 
 - Çarpışma simülasyonu yok. Crash-lock gibi kilitli yapılarda açıları ve adımları elle ayarlaman gerekir.
+- Kavisli katlar: **KIRMA** spotundaki katlar kavisli sayılır. Araç her yayı 21 noktaya böler, köşede buluşan yayların aynı sıradaki
+  noktalarını birleştirip kırma çizgileri üretir (*Çizgi grupları*'nda "Kırma çizgileri", üretime gitmez) ve yıldız + mercek biçimli
+  kutularda şekli kendisi hesaplar (mercek dik iner, yıldız kenarı yüksekliği = merceğin o noktadaki eninin yarısı). Bükülen bölge
+  tek parça gibi davranır: kırımları *Katlar*'da tek tek listelenmez, tek tek açılmaz. Diğer kavisli biçimler (yastık kutu vb.) henüz yok;
+  kuralı olmayan parçalar düz (0°) kalır.
 - Karton kalınlığı yok, paneller sıfır kalınlıkta. Üst üste gelen klapeleri 1–2° farkla ayır.
 - Sadece PDF'in **1. sayfası** okunur.
 - Kesim ve kat renginde çizilmiş artwork çizgileri de dokudan düşer (dieline rengiyle aynı renkte kontur kullanma).
