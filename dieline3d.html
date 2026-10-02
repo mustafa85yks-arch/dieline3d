@@ -408,14 +408,25 @@ async function spotColors(buf) {
     if (/ICCBased/.test(cs)) { const ic = deref((/ICCBased\s+(\d+\s+\d+\s+R)/.exec(cs) || [])[1] || ''); const n = +((/\/N\s+(\d)/.exec(ic) || [])[1] || v.length); cs = n === 4 ? '/DeviceCMYK' : n === 1 ? '/DeviceGray' : '/DeviceRGB'; }
     if (!cs || /stream/.test(cs)) continue;
     const key = cs + ' ' + v.join(' ');
-    if (!defs.has(key)) defs.set(key, { cs, v, names: new Set() });
+    if (!defs.has(key)) {
+      const c0m = /\/C0\s*\[([^\]]*)\]/.exec(fn), nm = /\/N\s+([\d.]+)/.exec(fn);
+      defs.set(key, { cs, v, c0: c0m ? c0m[1].trim().split(/\s+/).map(Number) : v.map(() => 0), N: nm ? +nm[1] : 1, names: new Set() });
+    }
     defs.get(key).names.add(name8);
   }
-  const list = [...defs.values()];
-  if (!list.length) return new Map();
-  // her tanım için bir çizgi çizen minik PDF → pdf.js aynı dönüşümü yapar
-  const content = list.map((d, i) => `/A${i} CS ${d.v.join(' ')} SC 0 0 m 1 1 l S`).join('\n');
-  const csRes = list.map((d, i) => `/A${i} ${d.cs.startsWith('/') ? d.cs : d.cs}`).join(' ');
+  const defList = [...defs.values()];
+  if (!defList.length) return new Map();
+  // Dekoratif kanallar (BEYAZ, LAK, GOFRE, varak) baskıda her tonda kullanılır: tonun gerçek rengi alternatif uzaydan hesaplanır
+  // (spot→CMYK→RGB düz çizgi değil, bu yüzden "beyazdan spota doğru" varsayımı yetmiyordu: LAK'ın %84'ü tanınmıyordu). %10–95 arası 5'er puan.
+  const DEKOR = n => BEYAZ_RE.test(n) || LAK_RE.test(n) || GOFRE_RE.test(n) || FOIL_RE.test(n);
+  const list = [];   // { d, v }: her giriş mini PDF'te bir çizgi
+  for (const d of defList) {
+    list.push({ d, v: d.v });
+    if ([...d.names].some(DEKOR)) for (let t = 0.1; t < 0.96; t += 0.05) list.push({ d, v: d.v.map((c1, k) => +((d.c0[k] ?? 0) + Math.pow(t, d.N) * (c1 - (d.c0[k] ?? 0))).toFixed(5)) });
+  }
+  // her giriş için bir çizgi çizen minik PDF → pdf.js aynı dönüşümü yapar
+  const content = list.map((e, i) => `/A${i} CS ${e.v.join(' ')} SC 0 0 m 1 1 l S`).join('\n');
+  const csRes = list.map((e, i) => `/A${i} ${e.d.cs.startsWith('/') ? e.d.cs : e.d.cs}`).join(' ');
   const objs = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
     `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources << /ColorSpace << ${csRes} >> >> /Contents 4 0 R >>`,
     `<< /Length ${content.length} >>\nstream\n${content}\nendstream`];
@@ -428,10 +439,10 @@ async function spotColors(buf) {
   const ol = await (await doc.getPage(1)).getOperatorList();
   const out = new Map(); let i = 0;
   for (let k = 0; k < ol.fnArray.length; k++) if (ol.fnArray[k] === OPS.setStrokeRGBColor) {
-    const d = list[i++]; if (!d) break;
+    const e = list[i++]; if (!e) break;
     const hex = hexOf(ol.argsArray[k]);
     if (!out.has(hex)) out.set(hex, new Set());
-    for (const n of d.names) out.get(hex).add(n);
+    for (const n of e.d.names) out.get(hex).add(n);
   }
   doc.destroy();
   return new Map([...out].map(([h, s]) => [h, [...s]]));
@@ -1464,7 +1475,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
   function lakEnv() {
     if (lakEnvTex) return lakEnvTex;
     const c = document.createElement('canvas'); c.width = 1024; c.height = 512; const x = c.getContext('2d');
-    const g = x.createLinearGradient(0, 0, 0, 512); g.addColorStop(0, '#e9eaec'); g.addColorStop(0.4, '#cfd1d4'); g.addColorStop(0.55, '#9a9ca0'); g.addColorStop(1, '#6f7073'); x.fillStyle = g; x.fillRect(0, 0, 1024, 512);
+    const g = x.createLinearGradient(0, 0, 0, 512); g.addColorStop(0, '#8d8f93'); g.addColorStop(0.4, '#767879'); g.addColorStop(0.55, '#5a5c5f'); g.addColorStop(1, '#46474a');   // ortalama koyu: perde az, parlama pencere/lamba lekelerinden x.fillStyle = g; x.fillRect(0, 0, 1024, 512);
     x.shadowColor = '#101113'; x.shadowBlur = 50; x.fillStyle = '#101113';   // koyu bölgeler: yansıyınca lak derin siyah olur
     for (const [u, v, w, h] of [[150, 190, 210, 190], [560, 230, 170, 200], [860, 120, 110, 240]]) x.fillRect(u, v, w, h);
     x.shadowColor = '#ffffff'; x.shadowBlur = 40; x.fillStyle = '#ffffff';   // pencere/lamba: beyaz parlama lekeleri
@@ -1841,7 +1852,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
       // Kısmi UV lak (operatörün örnek fotoğrafları): mat zeminin üstünde pürüzsüz, ayna gibi film. Işık yansımadığı açıda mat yüzeyden DAHA KOYU ve derin
       // (parlak siyah, matın gri sisinden koyu), yansıyınca yumuşak degrade/uzun parlama. Bu yüzden toplamalı değil, alan içinde yüzeyin YERİNE geçen katman:
       // aynı baskı (map) biraz koyu (color) + keskin yansıma. Kenarında lak kalınlığı kadar hafif kabartma (bump).
-      matLak = new THREE.MeshPhysicalMaterial({ map: texture, color: 0xb8b8b8, metalness: 0, roughness: 0.04, ior: 2.0, envMap: lakEnv(), envMapIntensity: 2.4, alphaMap: lakAlpha, transparent: true,
+      matLak = new THREE.MeshPhysicalMaterial({ map: texture, color: 0xd4d4d4, metalness: 0, roughness: 0.04, ior: 1.6, envMap: lakEnv(), envMapIntensity: 1.6, alphaMap: lakAlpha, transparent: true,
         bumpMap: bumpTex || null, bumpScale: 4, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     } else matLak = null;
     matBendBack = textureBack ? new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, map: textureBack, roughness: 0.95, metalness: 0 }) : null;
@@ -2412,6 +2423,53 @@ async function renderArt(isStale) {
   const unpatch = ctx => { for (const [fn] of OPS2D) delete ctx[fn]; delete ctx.drawImage; delete ctx.putImageData; };
   // maske geçişlerinde görseller (fotoğraf, gömülü bitmap) hiç çizilmez: yoksa fotoğrafın açık tonları yarı saydam varak olur
   const noImages = ctx => { ctx.drawImage = () => {}; ctx.putImageData = () => {}; };
+  // Spot renginde boyalı görüntü maskeleri (Photoshop'tan gelen LAK/BEYAZ/GOFRE bitmap'leri): pdf.js bunları fillStyle ile boyayıp drawImage çizer.
+  // Fotoğraftan ayırmak için: fillStyle kanal rengindeyse VE görüntüde o renkte opak piksel varsa maske sayılır.
+  const looksMask = (src, st) => {
+    try {
+      const m = /^#([0-9a-f]{6})$/.exec(st); if (!m || !src || !(src.width || src.naturalWidth)) return false;
+      const t = document.createElement('canvas'); t.width = t.height = 16; const x = t.getContext('2d', { willReadFrequently: true }); x.drawImage(src, 0, 0, 16, 16);
+      const d = x.getImageData(0, 0, 16, 16).data, c = [0, 2, 4].map(i => parseInt(m[1].substr(i, 2), 16));
+      for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 120 && Math.abs(d[i] - c[0]) < 22 && Math.abs(d[i + 1] - c[1]) < 22 && Math.abs(d[i + 2] - c[2]) < 22) return true;
+    } catch { }
+    return false;
+  };
+  const maskImgsOnly = (ctx, pred) => { const orig = ctx.drawImage; ctx.putImageData = () => {};
+    ctx.drawImage = function (...a) { const st = String(this.fillStyle).toLowerCase(); if (pred(st) && looksMask(a[0], st)) return orig.apply(this, a); }; };
+  // Şeffaflık grupları (Illustrator çarpma/overprint): pdf.js grup içindeki nesneleri AYRI geçici tuvallere çizip sonra ana tuvale bindirir; tek bağlama (ctx) yapılan
+  // süzgeç bunları görmezdi (bir dosyada LAK 105, BEYAZ 3026 çizim ana tuvalde hiç yok). Süzgeci CanvasRenderingContext2D prototipine koyarız (sadece o geçişte).
+  // imgWhite: maske geçişlerinde grup tuvalleri sadece içlerinde beyazdan başka renk yoksa ana tuvale aktarılır (fotoğraf/başka baskı karışmasın), karışım normal.
+  const isWhiteCanvas = (src, rawDraw) => {   // rawDraw: değiştirilmemiş drawImage (yoksa kendi çağrısı özyinelemeye girer)
+    try {
+      if (!src || !(src.width || src.naturalWidth)) return false;
+      const t = document.createElement('canvas'); t.width = t.height = 24; const x = t.getContext('2d', { willReadFrequently: true }); rawDraw.call(x, src, 0, 0, 24, 24);
+      const d = x.getImageData(0, 0, 24, 24).data; let any = false;
+      for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 40) { if (d[i] < 215 || d[i + 1] < 215 || d[i + 2] < 215) return false; any = true; }
+      return any;
+    } catch { return false; }
+  };
+  const protoPass = (decide, imgWhite) => {
+    const P = CanvasRenderingContext2D.prototype, saved = {};
+    for (const [fn, prop] of OPS2D) { const orig = P[fn]; saved[fn] = orig;
+      P[fn] = function (...a) {
+        const d = decide(String(this[prop]).toLowerCase(), fn);
+        if (d === 'atla') return;
+        if (d !== 'boya' && d !== 'sil') return orig.apply(this, a);
+        const old = this[prop]; this[prop] = d === 'boya' ? '#ffffff' : '#000000'; orig.apply(this, a); this[prop] = old;
+      }; }
+    if (imgWhite) {
+      const oImg = P.drawImage, oPut = P.putImageData; saved.drawImage = oImg; saved.putImageData = oPut;
+      P.putImageData = function () {};
+      P.drawImage = function (...a) {
+        if (!isWhiteCanvas(a[0], oImg)) return;
+        const op = this.globalCompositeOperation, al = this.globalAlpha; this.globalCompositeOperation = 'source-over'; this.globalAlpha = 1;
+        try { return oImg.apply(this, a); } finally { this.globalCompositeOperation = op; this.globalAlpha = al; }
+      };
+    }
+    return () => { for (const k in saved) P[k] = saved[k]; };
+  };
+  const skipDecorMasks = (ctx, pred) => { const orig = ctx.drawImage;
+    ctx.drawImage = function (...a) { const st = String(this.fillStyle).toLowerCase(); if (pred(st) && looksMask(a[0], st)) return; return orig.apply(this, a); }; };
   // varak rengi geçişinde görsel varakın üstüne düşüyorsa onu deler: görselin silüeti siyah çizilir
   const imagesErase = ctx => { const orig = ctx.drawImage;
     ctx.drawImage = function (...a) { const f = this.filter; this.filter = 'brightness(0)'; orig.apply(this, a); this.filter = f; };
@@ -2420,9 +2478,8 @@ async function renderArt(isStale) {
   // 1) ana baskı: dieline çizgileri ve varak rengi atlanır (varakın altında kâğıt / alttaki baskı kalır)
   const [cv, ctx] = newCanvas('#ffffff');
   const skip = new Set(S.groups.filter(g => S.roles[g.key] !== 'yok').map(g => g.color));
-  patch(ctx, (st, fn) => foilHex.has(st) || beyazHex.has(st) || lakHex.has(st) || gofreHex.has(st) || (fn === 'stroke' && skip.has(st)) ? 'atla' : undefined);
-  await render(ctx);
-  unpatch(ctx);
+  { const restore = protoPass((st, fn) => foilHex.has(st) || beyazHex.has(st) || lakHex.has(st) || gofreHex.has(st) || (fn === 'stroke' && skip.has(st)) ? 'atla' : undefined, false);
+    try { await render(ctx); } finally { restore(); } }
   if (isStale()) return false;   // bu arada başka bir yükleme başladıysa sonucu yazma
 
   // 2) varak maskesi: siyah zemin, varak rengindeki her çizim beyaz
@@ -2462,24 +2519,21 @@ async function renderArt(isStale) {
   S.beyazMask = null;
   if (beyazHex.size) {   // BEYAZ maskesi her zaman (Katmanlar'da gösterilebilsin); karton üstüne beyaz basma sadece opak modda
     const [wm, wx] = newCanvas('#000000');
-    patch(wx, st => beyazHex.has(st) ? 'boya' : 'atla'); noImages(wx);
-    await render(wx, BG); unpatch(wx);
+    { const restore = protoPass(st => beyazHex.has(st) ? 'boya' : 'atla', true); try { await render(wx, BG); } finally { restore(); } }
     if (isStale()) return false;
     S.beyazMask = wm;
   }
   S.gofreMask = null;
   if (gofreHex.size) {
     const [gm, gx] = newCanvas('#000000');
-    patch(gx, st => gofreHex.has(st) ? 'boya' : 'atla'); noImages(gx);
-    await render(gx, BG); unpatch(gx);
+    { const restore = protoPass(st => gofreHex.has(st) ? 'boya' : 'atla', true); try { await render(gx, BG); } finally { restore(); } }
     if (isStale()) return false;
     S.gofreMask = gm;
   }
   S.lakMask = null;
   if (lakHex.size) {
     const [lm, lx] = newCanvas('#000000');
-    patch(lx, st => lakHex.has(st) ? 'boya' : 'atla'); noImages(lx);
-    await render(lx, BG); unpatch(lx);
+    { const restore = protoPass(st => lakHex.has(st) ? 'boya' : 'atla', true); try { await render(lx, BG); } finally { restore(); } }
     if (isStale()) return false;
     S.lakMask = lm;
   }
