@@ -57,12 +57,12 @@ Yaldız basılan yer hafif içe göçer: folyo maskesi bulanıklaştırılıp ka
 ## GOFRE spotu (emboss / kabartma)
 
 Adında `gofre / emboss / kabartma / blind` geçen spot kabartma sayılır: spotun yer tutucu rengi (örn. pembe) 3D'de görünmez, o alan hafif **yükselir**, kenarı ışıkta belirir (kabartma haritası, kenarda 0,3 mm yumuşak eğim; gerçek yükseklik değil, ışık-gölge). Pilyaj ve yaldız izi gibi ışıkla görünür. Kenar yumuşak ve geniş (0,55 mm, yastık gibi, gofre videosuna göre). **Gofre ayarı** kaydırıcıları (dosyada GOFRE varsa Görünüm'de çıkar): **Kenar** (0,05–1,2 mm, kenar yumuşaklığı), **Köşelilik** (0 yuvarlak/yastık, 1 köşeli: düz tepe ve keskin omuz), **Şiddet** (2–20, kabartma gücü). Değerler yanında yazar, **Sıfırla** varsayılana döner, Ayarları sabitle ile saklanır. **Arka yüzde aynı şekil ters iz (yumuşak çukur)** olarak, ön yüzde yükselen yerin tam arkasında görünür (arka baskıdan farklı olarak aynalanmaz); kutuyu açıp içine bakınca (veya düz açınımı arkadan) gofrenin ters izi okunur.
-**GOFRE** seçimi (dosyada varsa görünür): Kabartma (varsayılan) / Eskisi gibi. Ayarları sabitle ve müşteri dosyasına girer.
+**GOFRE** seçimi (dosyada varsa görünür): Kabartma (varsayılan) / Eskisi gibi. Ayarları sabitle ve müşteri dosyasına girer. 
 
 ## LAK spotu (kısmi UV lak)
 
 Adında `lak / uv / varnish / vernik / lacquer / laque` geçen spot kısmi UV lak sayılır: spotun yer tutucu rengi (örn. mavi) 3D'de görünmez, o alan **parlak yüzey** olur: mat zeminin üstünde pürüzsüz, ayna gibi bir film (kısmi UV lak). Lak parlak bir ofisi yansıtır: açıya göre gümüşi açık gri/beyaz (duvar, tavan, pencere) ile derin siyah (koyu nesne) arasında gider, renkli baskıda doygun ve derin görünür, üstünde beyaz parlama lekeleri olur; altındaki mat yüzey koyu ve yumuşak kalır. Kutuyu çevirdikçe parlama yerleri değişir. Kenarında lak kalınlığı kadar hafif kabartma var. Mat kartonda LAK alanı ışık yansıtarak belirgin öne çıkar.
-**LAK** seçimi (dosyada varsa görünür): Parlak yüzey (varsayılan) / Eskisi gibi. Ayarları sabitle ve müşteri dosyasına girer.
+**LAK** seçimi (dosyada varsa görünür): Parlak yüzey (varsayılan) / Eskisi gibi. Ayarları sabitle ve müşteri dosyasına girer. 
 
 ## Metalize karton (Karton: Metalize / gri)
 
@@ -74,7 +74,7 @@ Adında `beyaz / white / blanc / weiss / bianco` geçen spot, beyaz boya (alt ba
 - **Multiply** (varsayılan): beyaz boya kartonu örtmez, yok sayılır; baskı kartonla çarpılır (kraftta koyulaşır).
 - **Opak beyaz**: beyaz boya kartonu örter, üstündeki baskı gerçek rengiyle görünür (kraft, renkli karton, metalize).
 - **Eskisi gibi**: spotun yer tutucu rengi olduğu gibi çizilir.
-Ayarları sabitle ve müşteri dosyasına girer.
+Ayarları sabitle ve müşteri dosyasına girer. 
 
 ## Gölge
 
@@ -157,7 +157,7 @@ Web'de iki fark var:
    **Çift tıkla** (telefonda çift dokun): tıklanan parça bağlı olduğu kattan açılır, tekrar çift tıklayınca kapanır. Açılış, katta yazan açı kadardır (90° kat 90° açılıp düz olur, 179° askı klapesi tam açılır). Düzü aşmasını istediğin kapak için katın ayarına `acilis` değeri verilebilir (JSON).
    **📌 Konumu sabitle:** *Katlar* tablosunda her satırın sonunda (ve açınımda parçaya tıklayınca "Taban yap"ın altında).
    Parçayı açılarla yerine oturt, sonra bas: parça **o an ekranda göründüğü yerde** (kapak çift tıkla açıkken bile) kutuya göre kilitlenir (🔒). Kapak açılsa, diğer açılar değişse de o parça ve ona bağlı parçalar oynamaz
-   (ör. bir müşteri dosyası'da kapağa bağlı ama tepsinin içinde duran iç duvar). Tekrar basınca çözülür. Ayarları sabitle ile kalıcı olur.
+   (ör. bir müşteri dosyasında kapağa bağlı ama tepsinin içinde duran iç duvar). Tekrar basınca çözülür. Ayarları sabitle ile kalıcı olur.
    Kapalı bir kapağın altındaki parçaya ulaşmak için önce kapağı açmak gerekir. *Oynat* ve *Başa dön* hepsini kapatır.
 7. **Kontrol paneli** (3D'nin sağ altı), üç grup:
    - Duruş: **⟲ Devir** kutuyu sana doğru bir yüzünün üstüne devirir, **↻ Çevir** olduğu yerde 90° döndürür,
@@ -234,3 +234,12 @@ Spot adı yoksa *Çizgi grupları*'ndan şablon çizgisinin rolünü **Silindir*
 | `ornek_piramit.pdf` | Kare tabanlı piramit (yan yüzler 120°) |
 | `YOL_HARITASI.md` | Geliştirilecekler, bilinen sınırlar, yapılanlar |
 | `mailer_uret.py` | Parametrik mailer dieline'ı: `python3 mailer_uret.py 315 202 62` |
+
+
+## Körüklü zarf (akordeon) ve yeni küçük seçenekler
+
+**Katlar → Körük**: zarf gibi yan körüğü olan bıçaklarda derinliği panel yüksekliğinden hesaplar. *Derinlik paneli* (zarfta dipteki ince şerit, örn. P2), *Karşı gövde* (P1) ve körük zincirleri (tabana bağlı 3 panel, örn. P5→P6→P7) işaretlenir, **Körüğü uygula** açıları yazar. P1 ve P3 üstte birleşir, altta derinlik kadar açılır (kama); körük şeritleri üstte kapanır, altta açılır. **Kama** menüsü: *Dilimli* (varsayılan), *Sürekli yüzey (deneme)*, *Yok (levha)*.
+**Görünüm → İç kesik izi**: panelin içine giren kesik uçları 3B'de koyu iz olarak çizilir. Var / Yok.
+**Açınım → ⤢ Büyüt**: açınımı tam ekran açar (Esc ile kapanır); dar şeritlerin numarasını okumak için.
+
+**Ölçü**: alt çubuktaki **Ölçü** düğmesi açıkken görünüm durunca kutunun üstünde ölçü çizgileri çıkar (dönerken gizlenir). Açınımda bir parçaya tıkla, çıkan **📏 Ölçü göster** düğmesine bas: o parçanın eni ve boyu 3B'de ölçülür (görünen kenarından, tercihen dış hatta). Tekrar basınca kalkar. Hiç parça seçilmemişse araç dış hattaki kenarları kendisi seçer. Seçim "Ayarları sabitle" ve müşteri dosyasına girer.

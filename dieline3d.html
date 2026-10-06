@@ -36,6 +36,11 @@ main{display:grid;grid-template-columns:minmax(320px,38%) 1fr;grid-template-rows
 .sum{color:var(--muted);font-size:12px}
 #svgwrap{background:#fafaf7;border:1px solid var(--line);border-radius:6px}
 #svg2d{width:100%;height:340px;display:block}
+#svgwrap{position:relative}
+#svgwrap.big{position:fixed;inset:0;z-index:50;background:#faf9f6;padding:12px}
+#svgwrap.big #svg2d{height:100%}
+#btnBig{position:absolute;top:4px;right:4px;z-index:2;padding:2px 8px;font-size:12px}
+#svgwrap.big #btnBig{top:16px;right:16px;font-size:14px;padding:6px 14px}
 #svg2d .panel{cursor:pointer}
 #svg2d .lbl{fill:#1d1d1b;pointer-events:none;text-anchor:middle;dominant-baseline:middle;font-weight:600}
 table{width:100%;border-collapse:collapse}
@@ -46,6 +51,11 @@ td input[type=number]{width:58px}
 tr.hl td{background:#eef4ff}
 tr.sel td{background:#fde7d6}
 #svg2d .panel.sel{stroke:var(--accent);stroke-width:2px}
+.ctx{position:fixed;z-index:60;background:#fff;border:1px solid #d6d3cc;border-radius:8px;box-shadow:0 6px 24px #0003;padding:4px;min-width:220px;font-size:13px}
+.ctx button{display:block;width:100%;text-align:left;border:0;background:none;padding:6px 10px;border-radius:5px;cursor:pointer}
+.ctx button:hover{background:#eef4ff}
+.ctx .ttl{font-size:11px;color:#888;padding:4px 10px 2px}
+.ctx hr{border:0;border-top:1px solid #eee;margin:3px 0}
 #svg2d .basebtn{cursor:pointer}
 #svg2d .basebtn rect{fill:#1d1d1b;opacity:.85}
 #svg2d .basebtn text{fill:#fff;font-weight:600;pointer-events:none}
@@ -93,7 +103,7 @@ tr.sel td{background:#fde7d6}
   <div id="left">
     <section>
       <h2>Açınım</h2>
-      <div id="svgwrap"><svg id="svg2d"></svg></div>
+      <div id="svgwrap"><button id="btnBig" title="Açınımı tam ekran büyüt (Esc ile kapat)">⤢ Büyüt</button><svg id="svg2d"></svg></div>
       <p class="hint"><span style="color:var(--cut)">━ kesim</span> · <span style="color:var(--crease)">┅ kat</span>
         · kalın çerçeveli panel: taban (kutu ona göre katlanır)</p>
     </section>
@@ -106,6 +116,7 @@ tr.sel td{background:#fde7d6}
       <summary><h2>Katlar</h2><span class="sum" id="sumHinges"></span></summary>
       <div class="row"><label>Taban <select id="selBase"></select></label>
         <span class="hint" style="margin:0">Otomatik seçim hemen hep doğrudur; sadece kutu yanlış katlanıyorsa değiştir.</span></div>
+      <div id="korukUi" style="display:none"></div>
       <table id="tblHinges"></table>
       <p class="hint">Açı 0° düzdür. İçe katlama baskılı yüzü dışarıda bırakır. Aynı <b>adım</b> numarasındaki katlar birlikte katlanır.</p>
     </details>
@@ -118,6 +129,7 @@ tr.sel td{background:#fde7d6}
           <option value="#9a9a96">Metalize (gri)</option></select></label>
         <label title="Baskılı ön yüzün parlaklığı. Arka yüz hep mat ve bir ton koyu">Ön yüz <select id="selGloss">
           <option value="parlak" selected>Parlak</option><option value="yari">Yarı parlak</option><option value="mat">Mat</option></select></label>
+        <label title="Panelin içine giren kesik uçları (çentik) 3B'de koyu iz olarak çizilir">İç kesik izi <select id="selSlit"><option value="1" selected>Var</option><option value="0">Yok</option></select></label>
         <label title="Zemin gölgesi">Gölge <select id="selShadow"><option value="1" selected>Var</option><option value="0">Yok</option></select></label>
         <label title="Kat çizgilerinde pilyaj izi (oluk + kabarık omuz), ışıkla görünür">Kat izi <select id="selPilyaj">
           <option value="0">Yok</option><option value="1" selected>Hafif</option><option value="2">Belirgin</option></select></label>
@@ -171,6 +183,9 @@ tr.sel td{background:#fde7d6}
       <label>Süre <select id="selDur"><option value="3">3 sn</option><option value="5" selected>5 sn</option><option value="8">8 sn</option></select></label>
       <button id="btnFlat" disabled>Açık hâli</button>
       <button id="btnDie" disabled>Bıçak izi</button>
+      <button id="btnOlcu" disabled title="Görünüm durunca kutunun en, boy, yükseklik ölçülerini gösterir (müşteri dosyasında da)">Ölçü</button>
+      <button id="btnSpec" disabled class="on" style="display:none" title="Renkler, efektler, kâğıt ve ölçü kartı (müşteri dosyasında da çıkar)">Özellikler</button>
+      <button id="btnSetup" disabled title="Açık hâli getirir; panellere tıklayıp körük / yapışma işaretlersin (renkle gösterilir)">Kutu ayarı</button>
 
       <span id="info"></span>
     </div>
@@ -205,6 +220,8 @@ const BEYAZ_RE = /beyaz|white|blanc|weiss|weiß|bianco/i;
 const LAK_RE = /(^|[^a-zçğıöşü])(lak|uv|varnish|vernik|lacquer|laque)([^a-zçğıöşü]|$)/i;
 // GOFRE spotu: emboss (kabartma). Yer tutucu renk 3D'de görünmez, alan hafif yükselir, kenarı ışıkta belirir.
 const GOFRE_RE = /gofre|emboss|kabartma|blind/i;
+// yalnız prova için olan spotlar (operatör, 6 Eki 2026: F_S_C prova içindir): 3B baskıda çizilmez, Özellikler kartında görünmez
+const PROVA_RE = /^f[_\s.-]*s[_\s.-]*c$/i;
 // bir çizim rengi, verilen spot renklerinden birinin tonu mu (beyazdan %100 renge çizgi üstünde)
 function isSpotTint(st, bases) {
   if (!bases.length) return false; if (bases.includes(st)) return true;
@@ -384,10 +401,13 @@ async function spotColors(buf) {
     const a = texts[0].indexOf('stream', m.index), b = texts[0].indexOf('endstream', a);
     if (a < 0 || b < 0) continue;
     let st = a + 6; if (bytes[st] === 13) st++; if (bytes[st] === 10) st++;
-    try {
-      const ds = new Blob([bytes.slice(st, b)]).stream().pipeThrough(new DecompressionStream('deflate'));
-      texts.push(new TextDecoder('latin1').decode(await new Response(ds).arrayBuffer()));
-    } catch {}
+    let en = b; while (en > st && (bytes[en - 1] === 10 || bytes[en - 1] === 13 || bytes[en - 1] === 32)) en--;   // sondaki satır sonu çözücüde hata verir
+    for (const son of [en, b]) {   // önce kırpılmış, olmazsa olduğu gibi (sağlama baytı satır sonuna denk gelebilir)
+      try {
+        const ds = new Blob([bytes.slice(st, son)]).stream().pipeThrough(new DecompressionStream('deflate'));
+        texts.push(new TextDecoder('latin1').decode(await new Response(ds).arrayBuffer())); break;
+      } catch {}
+    }
   }
   const all = texts.join('\n');
   const objText = (n, g) => { const r = new RegExp(`(?:^|\\s)${n}\\s+${g}\\s+obj\\b([\\s\\S]*?)endobj`).exec(all); return r ? r[1] : ''; };
@@ -422,7 +442,8 @@ async function spotColors(buf) {
   const list = [];   // { d, v }: her giriş mini PDF'te bir çizgi
   for (const d of defList) {
     list.push({ d, v: d.v });
-    if ([...d.names].some(DEKOR)) for (let t = 0.1; t < 0.96; t += 0.05) list.push({ d, v: d.v.map((c1, k) => +((d.c0[k] ?? 0) + Math.pow(t, d.N) * (c1 - (d.c0[k] ?? 0))).toFixed(5)) });
+    const dek = [...d.names].some(DEKOR);   // dekor kanallar ana haritaya; baskı spotlarının tonları ayrı (ayrım gösterimi için), bıçak rolü etkilenmesin
+    for (let t = 0.1; t < 0.96; t += 0.05) list.push({ d, ton: !dek, v: d.v.map((c1, k) => +((d.c0[k] ?? 0) + Math.pow(t, d.N) * (c1 - (d.c0[k] ?? 0))).toFixed(5)) });
   }
   // her giriş için bir çizgi çizen minik PDF → pdf.js aynı dönüşümü yapar
   const content = list.map((e, i) => `/A${i} CS ${e.v.join(' ')} SC 0 0 m 1 1 l S`).join('\n');
@@ -437,15 +458,17 @@ async function spotColors(buf) {
     `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
   const doc = await pdfjsLib.getDocument({ data: new TextEncoder().encode(pdf) }).promise;
   const ol = await (await doc.getPage(1)).getOperatorList();
-  const out = new Map(); let i = 0;
+  const out = new Map(), ton = new Map(); let i = 0;
   for (let k = 0; k < ol.fnArray.length; k++) if (ol.fnArray[k] === OPS.setStrokeRGBColor) {
     const e = list[i++]; if (!e) break;
-    const hex = hexOf(ol.argsArray[k]);
-    if (!out.has(hex)) out.set(hex, new Set());
-    for (const n of e.d.names) out.get(hex).add(n);
+    const hex = hexOf(ol.argsArray[k]), hedef = e.ton ? ton : out;
+    if (!hedef.has(hex)) hedef.set(hex, new Set());
+    for (const n of e.d.names) hedef.get(hex).add(n);
   }
   doc.destroy();
-  return new Map([...out].map(([h, s]) => [h, [...s]]));
+  const res = new Map([...out].map(([h, s]) => [h, [...s]]));
+  res.tonlar = new Map([...ton].map(([h, s]) => [h, [...s]]));   // baskı spotlarının %10–95 tonları
+  return res;
 }
 
 // Rol kuralı: ayrımı operatör renkle yapar, araç tahmin yürütmez.
@@ -1156,6 +1179,25 @@ function panelColors() {
   return col;
 }
 
+// panelin düz kenarları (mm): aynı doğrultudaki ardışık parçalar tek kenar; yay parçaları ve 3 mm'den kısa olanlar alınmaz
+function kenarKosulari(p) {
+  const pts = p.pts.map(q => [q[0] * PT2MM, q[1] * PT2MM]), n = pts.length, out = [], yon = (a, b) => Math.atan2(b[1] - a[1], b[0] - a[0]);
+  if (n < 3) return out;
+  let bas = 0; for (let k = 1; k <= n; k++) {
+    const a = pts[bas], b = pts[k % n], c = pts[(k + 1) % n];
+    const sapma = Math.abs(((yon(a, b) - yon(b, c) + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
+    if (k === n || sapma > 0.05) { if (Math.hypot(pts[k % n][0] - pts[bas][0], pts[k % n][1] - pts[bas][1]) >= 3) out.push([pts[bas], pts[k % n]]); bas = k % n; if (bas === 0) break; }
+  }
+  return out;
+}
+// parçanın eni ve boyu: en uzun kenar ve ona dik en uzun kenar
+function panelOlcuKenarlari(ks) {
+  if (!ks.length) return [];
+  const L = k => Math.hypot(k[1][0] - k[0][0], k[1][1] - k[0][1]), u = k => [(k[1][0] - k[0][0]) / L(k), (k[1][1] - k[0][1]) / L(k)];
+  const a = ks.reduce((m, k) => L(k) > L(m) ? k : m, ks[0]), ua = u(a);
+  const dik = ks.filter(k => Math.abs(u(k)[0] * ua[0] + u(k)[1] * ua[1]) < 0.3);
+  return dik.length ? [a, dik.reduce((m, k) => L(k) > L(m) ? k : m, dik[0])] : [a];
+}
 function draw2D() {
   const svg = $('svg2d'); svg.innerHTML = '';
   const paths = S.paths.filter(p => S.roles[p.group] !== 'yok');
@@ -1179,7 +1221,8 @@ function draw2D() {
       stroke: isBase ? '#1d1d1b' : 'none', 'stroke-width': isBase ? span / 150 : 0 });
     const tt = el('title', {}); tt.textContent = `P${p.id + 1}${isBase ? ' (taban)' : ''} · ${(Math.abs(p.area) * PT2MM * PT2MM / 100).toFixed(1)} cm²`;
     path.appendChild(tt);
-    path.addEventListener('click', () => selectPanel(p.id));
+    path.addEventListener('click', e => selectPanel(p.id, e.shiftKey));
+    path.addEventListener('contextmenu', e => { e.preventDefault(); openCtx(p.id, e); });
     svg.appendChild(path);
   }
   for (const p of paths) {
@@ -1192,6 +1235,16 @@ function draw2D() {
     svg.appendChild(el('line', { x1: h.a[0] * PT2MM, y1: h.a[1] * PT2MM, x2: h.b[0] * PT2MM, y2: h.b[1] * PT2MM,
       stroke: 'var(--sel)', 'stroke-width': span / 90, opacity: 0, id: `hl${i}`, 'pointer-events': 'none' }));
   });
+  // ölçüsü gösterilen parçalar: eni ve boyu turuncu, uzunluk yazılı
+  if (S.olcuSig !== S.sig) { S.olcuPanel = []; S.olcuSig = S.sig; }
+  for (const p of S.panels) {
+    if (!(S.olcuPanel || []).includes(p.id)) continue;
+    for (const [a, b] of panelOlcuKenarlari(kenarKosulari(p))) {
+      svg.appendChild(el('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: '#ff9f1c', 'stroke-width': span / 140, 'stroke-linecap': 'round', 'pointer-events': 'none' }));
+      const t = el('text', { x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2, class: 'lbl', style: `font-size:${Math.max(4, span / 55)}px;fill:#b35f00` });
+      t.textContent = `${Math.round(Math.hypot(b[0] - a[0], b[1] - a[1]))}`; svg.appendChild(t);
+    }
+  }
   const fs = Math.max(5, span / 40);
   for (const p of S.panels) {
     if (p.scrap) continue;
@@ -1223,7 +1276,154 @@ function drawGroups() {
   $('sumGroups').textContent = `${c('kesim')} kesim · ${c('kat')} kat · ${c('yok')} yok sayılan`;
 }
 
+// ── Körük (akordeon zarf): operatörün tarifi, 5 Eki 2026 ──
+// Derinlik paneli (P2) yüksekliği = körük derinliği. Körük zinciri (3 şerit: a → b → c): a taban kenarından içe, b tersine, c tabana paralel
+// ve karşı gövdeye yapışır. Aynı genişlikte iki şerit varsayımı yerine ortak eğim: sin θ = derinlik / (a + b).
+// Karşı gövde (P1) üst menteşeden 180° − asin(derinlik / yükseklik) açılır: kesit üstte üçgen, altta derinlik kadar açık.
+const panelDim = id => {   // panelin mm cinsinden menteşeye dik boyu: alan / menteşe uzunluğu
+  const p = S.panels.find(q => q.id === id), h = S.hinges.find(q => q.tree && q.child === id); if (!p || !h) return 0;
+  let a = 0; for (let i = 0, j = p.pts.length - 1; i < p.pts.length; j = i++) a += p.pts[j][0] * p.pts[i][1] - p.pts[i][0] * p.pts[j][1];
+  const hl = Math.hypot(h.b[0] - h.a[0], h.b[1] - h.a[1]); return hl ? Math.abs(a / 2) / hl * PT2MM : 0;
+};
+const kidsOf = id => S.hinges.filter(h => h.tree && h.parent === id).map(h => h.child);
+function korukChains() {
+  const out = [];
+  for (const c of kidsOf(S.baseId)) { const ch = [c]; while (ch.length < 3) { const k = kidsOf(ch[ch.length - 1]); if (k.length !== 1) break; ch.push(k[0]); } if (ch.length === 3) out.push(ch); }
+  return out;
+}
+function applyKoruk() {
+  const K = S.koruk; if (!K || K.depth == null) return;
+  const D = panelDim(K.depth); if (!D) return;
+  const hOf = id => S.hinges.find(h => h.tree && h.child === id);
+  const set = (id, ang, dir) => { const h = hOf(id); if (h && S.settings[h.key]) { S.settings[h.key].angle = +ang.toFixed(2); S.settings[h.key].dir = dir; } };
+  const deg = x => x * 180 / Math.PI;
+  for (const st of K.starts || []) {
+    const ch = korukChains().find(c => c[0] === st); if (!ch) continue;
+    const th = deg(Math.asin(Math.min(1, D / (panelDim(ch[0]) + panelDim(ch[1])))));
+    set(ch[0], 180 - th, 1); set(ch[1], 180 - 2 * th, -1); set(ch[2], 180 - th, 1);
+  }
+  if (K.front != null) { const L = panelDim(K.front); if (L) set(K.front, 180 - deg(Math.asin(Math.min(1, D / L))), 1); }
+  viewer.load(viewerData()); drawHinges(); showInfo();
+}
+// Yapışacak paneller: "P7 → P1" satırları. Kaynak panelden tabana kadar çıkılır, zincir (3 şerit) kendiliğinden bulunur; hedef = karşı gövde.
+function korukChainOf(id) {
+  const path = [id]; let cur = id;
+  for (;;) { const h = S.hinges.find(x => x.tree && x.child === cur); if (!h) return null; if (h.parent === S.baseId) break; path.unshift(h.parent); cur = h.parent; if (path.length > 3) return null; }
+  const ch = korukChains().find(c => c[0] === path[0]);
+  return ch && ch[ch.length - 1] === id ? ch : null;
+}
+// yapışacağı panel körük şeridi ya da taban olamaz; karşı gövde adayları: tabanın körük olmayan çocukları, büyükten küçüğe
+const korukUyeleri = () => new Set(S.baseId == null ? [] : korukChains().flat());
+const glueHedefOk = id => id !== S.baseId && !korukUyeleri().has(id);
+function karsiGovdeAday() {
+  if (S.baseId == null) return [];
+  const uye = korukUyeleri(), alan = id => { const q = S.panels.find(x => x.id === id); return q ? Math.abs(q.area || 0) : 0; };
+  return kidsOf(S.baseId).filter(id => !uye.has(id)).sort((a, b) => alan(b) - alan(a));
+}
+function korukPick(pid) {   // 3B ya da açınımda tıklama: önce yapışan panel, sonra yapışacağı panel
+  const pk = S.kbPick; if (!pk) return false;
+  const pn = id => 'P' + (id + 1);
+  if (pk.src == null) { if (!korukChainOf(pid)) { status(`${pn(pid)} tabana 3 panelle bağlı bir körük ucu değil; körük zincirinin son panelini (örn. P7) tıkla.`, true); return true; }
+    pk.src = pid; drawKoruk(); status(`${pn(pid)} seçildi. Şimdi yapışacağı paneli tıkla (örn. P1). İptal: Esc.`); return true; }
+  if (pid === pk.src) { status('Aynı panel: yapışacağı başka bir panel tıkla.', true); return true; }
+  if (!glueHedefOk(pid)) { status(`${pn(pid)} körük şeridi ya da taban: yapışacağı panel karşı gövde olmalı (örn. ${karsiGovdeAday().map(pn)[0] || 'P1'}).`, true); return true; }
+  const K = S.koruk || (S.koruk = { depth: null, starts: [], front: null, glue: [] });
+  if (!(K.glue || (K.glue = [])).some(g => g.src === pk.src && g.dst === pid)) K.glue.push({ src: pk.src, dst: pid }); status(`${pn(pk.src)} → ${pn(pid)} eklendi. Körüğü uygula.`);
+  S.kbPick = null; drawKoruk(); return true;
+}
+addEventListener('keydown', e => { if (e.key === 'Escape' && S.kbPick) { S.kbPick = null; drawKoruk(); status('Seçim iptal.'); } });
+// Derinlik kuralı (operatör, 5 Eki 2026): körük zincirleri aynı panele (taban) bağlıysa, o panelin altı (karşı gövdenin bağlandığı kenarın TERSİ)
+// derinliği verir: tabana o kenardan bağlı panel derinlik panelidir (zarfta P3'e bağlı P2).
+function korukAutoDepth(K) {
+  const ok = (K.glue || []).map(g => ({ g, ch: korukChainOf(g.src) })).filter(x => x.ch); if (!ok.length) return null;
+  const front = ok[0].g.dst, starts = new Set(ok.map(x => x.ch[0]));
+  const cand = kidsOf(S.baseId).filter(id => id !== front && !starts.has(id)); if (!cand.length) return null;
+  const hm = id => { const h = S.hinges.find(x => x.tree && x.child === id); return h ? [(h.a[0] + h.b[0]) / 2, (h.a[1] + h.b[1]) / 2] : null; };
+  const f = hm(front); if (!f || cand.length === 1) return cand[0];
+  return cand.map(id => ({ id, d: (hm(id) ? Math.hypot(hm(id)[0] - f[0], hm(id)[1] - f[1]) : -1) })).sort((a, b) => b.d - a.d)[0].id;
+}
+// 3B vurgusu: yapışan paneller mavi, yapışacağı paneller turuncu, seçmekte olunan koyu mavi, sıradan seçili panel turkuaz
+// Sağ tık menüsü (3B ve açınım): panelin ne işe yaradığını işaretle. Shift ile iki panel seçiliyse yapışma seçenekleri çıkar.
+function closeCtx() { $('ctxMenu')?.remove(); }
+function openCtx(pid, e) {
+  closeCtx(); if (pid == null || !S.panels.length) return;
+  if (!S.selPids || !S.selPids.has(pid)) { if (S.kbPick) { S.selPids = new Set([pid]); refreshHl(); } else selectPanel(pid, false); }   // seçili olmayan panele sağ tık: önce onu seç (Kutu ayarı açıkken seçim yapışma sayılmaz)
+  const pn = id => 'P' + (id + 1), sel = [...S.selPids];
+  const K = S.koruk || (S.koruk = { depth: null, starts: [], front: null, glue: [] }); if (!K.glue) K.glue = [];
+  const items = [];
+  const ekle = (a, b) => { if (!K.glue.some(g => g.src === a && g.dst === b)) K.glue.push({ src: a, dst: b }); drawKoruk(); status(`${pn(a)} → ${pn(b)} eklendi. Körüğü uygula.`); };
+  if (sel.length === 1 && korukChainOf(pid)) for (const c of karsiGovdeAday().slice(0, 2)) items.push([`${pn(pid)} → ${pn(c)} yapışır (körük)`, () => ekle(pid, c)]);
+  if (sel.length === 2) for (const [a, b] of [[sel[0], sel[1]], [sel[1], sel[0]]]) if (korukChainOf(a) && glueHedefOk(b))
+    items.push([`${pn(a)} → ${pn(b)} yapışır (körük)`, () => ekle(a, b)]);
+  if (S.baseId != null && kidsOf(S.baseId).includes(pid)) items.push([`${pn(pid)} derinlik paneli olsun`, () => { K.depth = pid; K.depthAuto = false; drawKoruk(); status(`Derinlik paneli: ${pn(pid)} (${panelDim(pid).toFixed(1)} mm).`); }]);
+  for (const g of K.glue.filter(g => g.src === pid || g.dst === pid)) items.push([`${pn(g.src)} → ${pn(g.dst)} yapışmasını kaldır`, () => { K.glue.splice(K.glue.indexOf(g), 1); drawKoruk(); }]);
+  if (K.glue.length) items.push(['Körüğü uygula', () => { $('secHinges').open = true; $('kbApply')?.click(); }]);
+  items.push(null);
+  if (pid !== S.baseId) items.push([`${pn(pid)} taban olsun`, () => { setBase(pid); selectPanel(pid); status(`${pn(pid)} taban yapıldı.`); }]);
+  items.push(['Seçimi temizle', () => selectPanel(null)]);
+  const m = document.createElement('div'); m.id = 'ctxMenu'; m.className = 'ctx';
+  m.innerHTML = `<div class="ttl">${sel.map(pn).join(' + ')}${sel.length > 1 ? ' seçili' : ''}</div>`;
+  for (const it of items) {
+    if (!it) { m.appendChild(document.createElement('hr')); continue; }
+    const b = document.createElement('button'); b.textContent = it[0];
+    if (!it[1]) { b.disabled = true; b.style.cssText = 'color:#888;cursor:default'; } else b.onclick = () => { closeCtx(); it[1](); };
+    m.appendChild(b);
+  }
+  document.body.appendChild(m);
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.min(e.clientX, innerWidth - r.width - 8) + 'px'; m.style.top = Math.min(e.clientY, innerHeight - r.height - 8) + 'px';
+}
+addEventListener('pointerdown', e => { const m = $('ctxMenu'); if (m && !m.contains(e.target)) closeCtx(); }, true);
+addEventListener('keydown', e => { if (e.key === 'Escape') closeCtx(); });
+function refreshHl() {
+  const hl = new Map(), K = S.koruk, pk = S.kbPick;
+  if (pk) for (const g of (K && K.glue) || []) { hl.set(g.src, 0x2a9df4); hl.set(g.dst, 0xff9f1c); }   // yapışma renkleri yalnız Kutu ayarı açıkken
+  if (pk && pk.src != null) hl.set(pk.src, 0x0b5fbf);
+  for (const id of S.selPids || []) if (!hl.has(id)) hl.set(id, 0x26c6da);
+  viewer.setHighlight(hl); $('btnSetup')?.classList.toggle('on', !!pk);
+}
+function drawKoruk() {
+  const el = $('korukUi'); if (!el) return;
+  if (S.korukSig !== S.sig) { S.koruk = null; S.korukSig = S.sig; S.kbPick = null; S.selPid = null; S.selPids = new Set(); }
+  const chains = S.baseId == null ? [] : korukChains();
+  el.style.display = chains.length ? '' : 'none'; if (!chains.length) { refreshHl(); return; }
+  const K = S.koruk || (S.koruk = { depth: null, starts: [], front: null, glue: [] });
+  if (!K.glue) K.glue = [];
+  if (K.depth == null || K.depthAuto) { const ad = korukAutoDepth(K); if (ad != null) { K.depth = ad; K.depthAuto = true; } }
+  const pn = id => 'P' + (id + 1), kids = kidsOf(S.baseId), all = S.panels.filter(q => !q.scrap && q.id !== S.baseId).map(q => q.id);
+  const opt = (ids, cur, none) => `<option value="">${none}</option>` + ids.map(i => `<option value="${i}"${cur === i ? ' selected' : ''}>${pn(i)}</option>`).join('');
+  const pk = S.kbPick;
+  el.innerHTML = `<div class="row" style="flex-wrap:wrap;gap:8px;margin-bottom:6px"><b>Körük</b>
+    <label title="${K.depthAuto ? 'Otomatik: körüklerin bağlı olduğu panelin, karşı gövdenin tersindeki kenarına bağlı panel' : 'Elle seçildi'}">Derinlik paneli${K.depthAuto ? ' (oto)' : ''} <select id="kbDepth">${opt(kids, K.depth, 'yok')}</select></label>
+    <label title="Derinlik üstte 0'dan altta derinlik panelinin yüksekliğine artar (kama). Dilimli: 120 sert dilim. Sürekli yüzey (deneme): paylaşılan köşelerle tek parça ağ. Yok: sabit kalınlıkta levha.">Kama <select id="kbMod">${[['dilim', 'Dilimli'], ['yuzey', 'Sürekli yüzey (deneme)'], ['yok', 'Yok (levha)']].map(([v, n]) => `<option value="${v}"${(K.mod || (K.dilim === false ? 'yok' : 'dilim')) === v ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
+    <button id="kbApply" class="btn">Körüğü uygula</button></div>
+    <div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:4px"><b>Yapışacak paneller</b>
+    ${K.glue.map((g, i) => `<span class="sw" style="width:auto;height:auto;padding:1px 6px;border-radius:9px;background:#eef4ff">${pn(g.src)} → ${pn(g.dst)} <a href="#" data-del="${i}" title="Satırı sil" style="text-decoration:none">✕</a></span>`).join('') || '<span class="hint" style="margin:0">henüz yok</span>'}</div>
+    <div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:6px">
+    <select id="kbSrc">${opt(all, pk && pk.src, 'panel')}</select> → <select id="kbDst">${opt(all, null, 'yapışacağı panel')}</select>
+    <button id="kbAdd" class="btn">Ekle</button>
+    <button id="kbPick" class="btn${pk ? ' on' : ''}" title="3B'de ya da açınımda önce yapışan paneli (örn. P7), sonra yapışacağı paneli (örn. P1) tıkla">${pk ? 'Seçiyor… (Esc)' : "3B'de seç"}</button></div>
+    <p class="hint" style="margin-top:0">Derinlik = derinlik panelinin yüksekliği${K.depth != null ? ` (${panelDim(K.depth).toFixed(1)} mm)` : ''}. Yapışan panelden tabana kadar körük zinciri kendiliğinden bulunur; yapışacağı panel karşı gövde olur (üstte tabana birleşir).</p>`;
+  const rd = () => { K.depth = $('kbDepth').value === '' ? null : +$('kbDepth').value; K.mod = $('kbMod').value; K.dilim = K.mod !== 'yok';
+    const ok = K.glue.map(g => ({ g, ch: korukChainOf(g.src) })).filter(x => x.ch);
+    K.starts = [...new Set(ok.map(x => x.ch[0]))]; K.front = ok.length ? ok[0].g.dst : null; };
+  $('kbDepth').onchange = () => { K.depthAuto = false; };
+  $('kbApply').onclick = () => { rd(); if (K.front == null || !K.starts.length) { status('Önce "Yapışacak paneller"e en az bir satır ekle (örn. P7 → P1).', true); return; }
+    if (K.depth == null) {   // tek aday varsa kendisi seçer: tabanın çocukları arasında karşı gövde ve körük zincirleri dışında kalan
+      const adaylar = kids.filter(id => id !== K.front && !K.starts.includes(id));
+      if (adaylar.length === 1) { K.depth = adaylar[0]; status(`Derinlik paneli olarak ${pn(K.depth)} seçildi (tek aday).`); }
+      else { status('Derinlik panelini seç (zarfta dipteki ince şerit, örn. P2).', true); return; } }
+    applyKoruk(); drawKoruk(); };
+  $('kbAdd').onclick = () => { const a = $('kbSrc').value, b = $('kbDst').value; if (a === '' || b === '' || a === b) { status('Yapışan ve yapışacağı paneli seç.', true); return; }
+    if (!korukChainOf(+a)) { status(`${pn(+a)} tabana 3 panelle bağlı bir körük ucu değil.`, true); return; }
+    if (!glueHedefOk(+b)) { status(`${pn(+b)} körük şeridi ya da taban: yapışacağı panel karşı gövde olmalı.`, true); return; }
+    if (!K.glue.some(g => g.src === +a && g.dst === +b)) K.glue.push({ src: +a, dst: +b }); drawKoruk(); };
+  $('kbPick').onclick = () => { S.kbPick = S.kbPick ? null : { src: null }; drawKoruk(); if (S.kbPick) status("Yapışan paneli tıkla (örn. P7): 3B'de ya da açınımda."); };
+  for (const a of el.querySelectorAll('[data-del]')) a.onclick = e => { e.preventDefault(); K.glue.splice(+a.dataset.del, 1); drawKoruk(); };
+  refreshHl();
+}
 function drawHinges() {
+  drawKoruk();
   const t = $('tblHinges');
   const nEsnek = S.hinges.filter(h => h.tree && S.settings[h.key] && S.settings[h.key].esnek).length;
   const rows = S.hinges.map((h, i) => [h, i]).filter(([h]) => h.tree && !(S.settings[h.key] && S.settings[h.key].esnek))
@@ -1305,6 +1505,25 @@ function drawGlueButton(p) {
   Object.entries({ x: b.x - px, y: b.y - py, width: b.width + 2 * px, height: b.height + 2 * py }).forEach(([k, v]) => r.setAttribute(k, v));
   g.addEventListener('click', e => { e.stopPropagation(); konumSabitle(S.hinges[p.hinge]); selectPanel(p.id); });
 }
+// Ölçü göster (operatör, 6 Eki 2026): seçili parçanın eni ve boyu 3B'de ölçü olarak görünür; tekrar basınca kalkar
+function drawOlcuButton(p) {
+  $('olcuBtn')?.remove();
+  if (!p || p.scrap || p.depth < 0 || !S.bbox) return;
+  const [x0, y0, x1, y1] = S.bbox, span = Math.max(x1 - x0, y1 - y0) * PT2MM, fs = Math.max(5, span / 40);
+  const n = ($('baseBtn') ? 1 : 0) + ($('glueBtn') ? 1 : 0);
+  const g = el('g', { id: 'olcuBtn', class: 'basebtn', transform: `translate(${p.c[0] * PT2MM},${p.c[1] * PT2MM - fs * 1.25 + (n ? 0 : fs * 2.5)})` });
+  const r = el('rect', { rx: fs * 0.3 }), t = el('text', { 'text-anchor': 'middle', 'dominant-baseline': 'middle', style: `font-size:${fs * 0.6}px` });
+  const var_ = (S.olcuPanel || []).includes(p.id);
+  t.textContent = var_ ? '📏 Ölçüyü kaldır' : '📏 Ölçü göster';
+  const tt = el('title', {}); tt.textContent = `P${p.id + 1}'in eni ve boyu 3B'de ölçü olarak görünsün`;
+  g.append(tt, r, t); $('svg2d').appendChild(g);
+  const b = t.getBBox(), px = fs * 0.3, py = fs * 0.15;
+  Object.entries({ x: b.x - px, y: b.y - py, width: b.width + 2 * px, height: b.height + 2 * py }).forEach(([k, v]) => r.setAttribute(k, v));
+  g.addEventListener('click', e => { e.stopPropagation();
+    S.olcuPanel = (S.olcuPanel || []).filter(id => id !== p.id); if (!var_) S.olcuPanel.push(p.id);
+    viewer.setOlcuPanel(S.olcuPanel.slice()); draw2D(); selectPanel(p.id); pinUi();
+    status(var_ ? `P${p.id + 1} ölçüsü kaldırıldı.` : `P${p.id + 1} ölçüsü 3B'de gösterilecek (görünüm durunca, parça görünüyorsa).`); });
+}
 // kilitle / çöz: parça ŞU AN EKRANDA göründüğü yerde (kapak çift tıkla açık olsa bile) kutu gövdesine göre kilitlenir
 function konumSabitle(h) {
   const st = S.settings[h.key]; if (!st) return;
@@ -1313,17 +1532,23 @@ function konumSabitle(h) {
   status(st.sabit ? `P${h.child + 1} konumu sabitlendi: diğer parçalar hareket etse de yerinde kalır. Kalıcı olması için Ayarları sabitle.` : `P${h.child + 1} serbest.`);
 }
 
-function selectPanel(pid) {
+function selectPanel(pid, add) {
+  if (pid != null && korukPick(pid)) return;
+  if (!S.selPids) S.selPids = new Set();
+  if (add && pid != null) { if (S.selPids.has(pid)) S.selPids.delete(pid); else S.selPids.add(pid); }   // Shift: seçime ekle / çıkar
+  else { S.selPids.clear(); if (pid != null) S.selPids.add(pid); }
+  S.selPid = pid == null ? null : pid; refreshHl();
   let p;
-  $('baseBtn')?.remove(); $('glueBtn')?.remove();
+  $('baseBtn')?.remove(); $('glueBtn')?.remove(); $('olcuBtn')?.remove();
   for (const r of document.querySelectorAll('#tblHinges tr.sel')) r.classList.remove('sel');
   if (S.selHinge != null) { const l = $(`hl${S.selHinge}`); if (l) l.setAttribute('opacity', 0); }
   S.selHinge = null;
   for (const e of document.querySelectorAll('#svg2d path.panel.sel')) e.classList.remove('sel');
+  for (const id of S.selPids) document.querySelector(`#svg2d path.panel[data-pid="${id}"]`)?.classList.add('sel');
   p = pid == null ? null : S.panels[pid];
   if (!p || p.scrap) return;
   const pe = document.querySelector(`#svg2d path.panel[data-pid="${pid}"]`); if (pe) pe.classList.add('sel');
-  drawBaseButton(p); drawGlueButton(p);
+  drawBaseButton(p); drawGlueButton(p); drawOlcuButton(p);
   $('secHinges').open = true;
   const esnek = q => q.hinge != null && S.settings[S.hinges[q.hinge].key] && S.settings[S.hinges[q.hinge].key].esnek;
   if (esnek(p)) {   // bükülmüş parçanın bir şeridi: parçayı bağlayan gerçek kat
@@ -1379,13 +1604,14 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   // ışık: parlama yok, tasarımın rengi üst yüzde olduğu gibi okunur; yan yüzler yönle ayrışır
-  const hemi = new THREE.HemisphereLight(0xffffff, 0xe4e0d8, 0.4 * PI);
+  // operatör (6 Eki 2026): ortam ışığı yetersizdi, yan yüzler koyu: ortam 0,4→0,55, dolgu 0,1→0,15 (üst yüz ≈ 0,55 + 0,38 < 1, beyaz patlamaz)
+  const hemi = new THREE.HemisphereLight(0xffffff, 0xe4e0d8, 0.55 * PI);
   const key = new THREE.DirectionalLight(0xffffff, 0.5 * PI);
   const KEYDIR = new THREE.Vector3(0.3, 1, 0.8).normalize();
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
   key.shadow.radius = 6; key.shadow.bias = -0.0004; key.shadow.normalBias = 0.5;
-  const fill = new THREE.DirectionalLight(0xffffff, 0.1 * PI);   // ışık toplamı beyazı 1,0'a yaklaştırmamalı: yoksa beyaz karton patlar
+  const fill = new THREE.DirectionalLight(0xffffff, 0.15 * PI);   // ışık toplamı beyazı 1,0'a yaklaştırmamalı: yoksa beyaz karton patlar
   fill.position.set(-1, 0.4, -0.6);
   scene.add(hemi, key, key.target, fill);
   // ── Gölge: alan ışığı gölgesi, temas sertleşmeli (operatörün referansı, 2 Eki 2026) ──
@@ -1440,7 +1666,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
   scene.add(model);
   let canGrp = null;   // silindir (teneke) modu
 
-  let cardStash = null, D = null, pivots = [], edgeObjs = [], texture = null, texCanvas = null, textureBack = null, texBackCanvas = null, matSide = null, matBendFront = null, matBendBack = null, matLak = null, lakAlpha = null, lakAlphaSrc = null, backBumpTex = null, backBumpCv = null, kraftSrc = null, kraftCv = null, bumpTex = null, bumpCanvas = null, matFront = null, matBack = null;
+  let cardStash = null, D = null, pivots = [], edgeObjs = [], texture = null, texCanvas = null, textureBack = null, texBackCanvas = null, matSide = null, matBendFront = null, matBendBack = null, matLak = null, matLakBand = null, lakAlpha = null, lakAlphaSrc = null, backBumpTex = null, backBumpCv = null, kraftSrc = null, kraftCv = null, bumpTex = null, bumpCanvas = null, matFront = null, matBack = null;
   // varak: maske (beyaz = folyo) + metalik malzeme + kodla üretilen stüdyo yansıması (dış dosya yok: müşteri dosyasında da çalışır)
   let foilTex = null, foilSrc = null, matFoil = null, foilColor = null, envTex = null;
   // karton yüzleri: baskılı ön yüz kuşe gibi parlak, arka yüz mat ve bir ton koyu (kraft'ta da aynı)
@@ -1458,13 +1684,23 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
   let foilEnvTex = null;
   function foilEnv() {
     if (foilEnvTex) return foilEnvTex;
-    const c = document.createElement('canvas'); c.width = 1024; c.height = 512; const x = c.getContext('2d');
-    const g = x.createLinearGradient(0, 0, 1024, 0);
-    g.addColorStop(0, '#fff6dc'); g.addColorStop(0.18, '#ffffff'); g.addColorStop(0.32, '#c9c2b0'); g.addColorStop(0.45, '#17140e');
-    g.addColorStop(0.62, '#0b0a07'); g.addColorStop(0.78, '#7d7566'); g.addColorStop(0.9, '#ffffff'); g.addColorStop(1, '#fff6dc');
-    x.fillStyle = g; x.fillRect(0, 0, 1024, 512);
-    const v = x.createLinearGradient(0, 0, 0, 512); v.addColorStop(0, 'rgba(255,255,255,0.45)'); v.addColorStop(0.35, 'rgba(255,255,255,0)'); v.addColorStop(0.6, 'rgba(0,0,0,0.35)'); v.addColorStop(1, 'rgba(0,0,0,0.1)');
-    x.fillStyle = v; x.fillRect(0, 0, 1024, 512);
+    // ofis: yukarı = beyaz tavan + pencere/lamba, ufuk = duvar + koyu nesneler, aşağı = ahşap masa (operatörün videoları)
+    const W = 1024, H = 512, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
+    const v = x.createLinearGradient(0, 0, 0, H);
+    v.addColorStop(0, '#ffffff'); v.addColorStop(0.28, '#f6f2ea'); v.addColorStop(0.42, '#9a9486'); v.addColorStop(0.5, '#4a4338');
+    v.addColorStop(0.56, '#8a5a2c'); v.addColorStop(0.75, '#6a4420'); v.addColorStop(1, '#4e3015');
+    x.fillStyle = v; x.fillRect(0, 0, W, H);
+    const blob = (cx, cy, rx, ry, col, a) => { x.save(); x.translate(cx, cy); x.scale(rx, ry);
+      const r = x.createRadialGradient(0, 0, 0, 0, 0, 1); r.addColorStop(0, col.replace('A', a)); r.addColorStop(0.6, col.replace('A', a * 0.6)); r.addColorStop(1, col.replace('A', 0));
+      x.fillStyle = r; x.beginPath(); x.arc(0, 0, 1, 0, 7); x.fill(); x.restore(); };
+    // pencereler / lambalar: tavan ve duvarın üst yarısında büyük beyaz lekeler (wrap için iki kopya)
+    for (const [cx, cy, rx, ry] of [[150, 110, 120, 60], [420, 90, 150, 50], [700, 120, 110, 70], [900, 80, 130, 45], [560, 190, 70, 40]])
+      for (const o of [-W, 0, W]) blob(cx + o, cy, rx, ry, 'rgba(255,255,255,A)', 1);
+    // koyu nesneler (monitör, dolap, kapı): ufuk çevresinde siyaha giden bölgeler
+    for (const [cx, cy, rx, ry] of [[250, 235, 90, 55], [520, 245, 110, 45], [800, 230, 80, 60], [60, 250, 70, 40]])
+      for (const o of [-W, 0, W]) blob(cx + o, cy, rx, ry, 'rgba(8,6,4,A)', 0.9);
+    // masa üstünde ahşap damarı için hafif boyuna değişim
+    for (let i = 0; i < 40; i++) { x.fillStyle = `rgba(${i % 2 ? '255,220,170' : '30,15,5'},0.05)`; x.fillRect(0, H * 0.58 + (i * 13.3) % (H * 0.4), W, 5 + (i % 4) * 3); }
     const t = new THREE.CanvasTexture(c); t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace;
     const pm = new THREE.PMREMGenerator(renderer); foilEnvTex = pm.fromEquirectangular(t).texture; t.dispose(); pm.dispose(); return foilEnvTex;
   }
@@ -1475,13 +1711,37 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
   function lakEnv() {
     if (lakEnvTex) return lakEnvTex;
     const c = document.createElement('canvas'); c.width = 1024; c.height = 512; const x = c.getContext('2d');
-    const g = x.createLinearGradient(0, 0, 0, 512); g.addColorStop(0, '#8d8f93'); g.addColorStop(0.4, '#767879'); g.addColorStop(0.55, '#5a5c5f'); g.addColorStop(1, '#46474a');   // ortalama koyu: perde az, parlama pencere/lamba lekelerinden x.fillStyle = g; x.fillRect(0, 0, 1024, 512);
-    x.shadowColor = '#101113'; x.shadowBlur = 50; x.fillStyle = '#101113';   // koyu bölgeler: yansıyınca lak derin siyah olur
-    for (const [u, v, w, h] of [[150, 190, 210, 190], [560, 230, 170, 200], [860, 120, 110, 240]]) x.fillRect(u, v, w, h);
-    x.shadowColor = '#ffffff'; x.shadowBlur = 40; x.fillStyle = '#ffffff';   // pencere/lamba: beyaz parlama lekeleri
-    for (const [u, v, w, h] of [[60, 30, 260, 90], [430, 50, 200, 110], [720, 20, 260, 80], [20, 260, 70, 160]]) x.fillRect(u, v, w, h);
+    // operatör (5 Eki 2026): parlama yaygındı, lak altı silik görünüyordu; tersi olmalı: çoğu açıda koyu/derin, parlama dar.
+    // Zemin koyu gradyan (eskiden gradyan yorum satırına yapışıktı, hiç çizilmiyordu), parlama iki küçük leke + ince bir çizgi.
+    const g = x.createLinearGradient(0, 0, 0, 512); g.addColorStop(0, '#3a3b3e'); g.addColorStop(0.45, '#26272a'); g.addColorStop(1, '#121214');
+    x.fillStyle = g; x.fillRect(0, 0, 1024, 512);
+    x.shadowColor = '#ffffff'; x.shadowBlur = 14; x.fillStyle = '#ffffff';
+    for (const [u, v, w, h] of [[470, 70, 70, 34], [800, 46, 46, 26]]) x.fillRect(u, v, w, h);
+    x.fillRect(120, 110, 220, 6);
     const t = new THREE.CanvasTexture(c); t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace;
     const pm = new THREE.PMREMGenerator(renderer); lakEnvTex = pm.fromEquirectangular(t).texture; t.dispose(); pm.dispose(); return lakEnvTex;
+  }
+  // metalize üstündeki lak (operatörün Photoshop demosu, 2 Eki 2026): lak = beyaz, yumuşak, eğik bir ışık bandı; lak maskesiyle sınırlı, "Overlay" %50-60.
+  // Overlay beyaz, rengi beyaza boğmaz: koyu kanalları ~2× açar, rengin tonunu korur (doygun açık ton). Burada hedef yüzeyle çarpımla yapılır:
+  // sonuç = yüzey × (1 + g·s·maske). Bant s: yansıma yönünün (azimut, yükseklik) eğik, yumuşak profilli bantları; kutu dönünce lak üstünde kayar.
+  function lakOverlayMat(alphaTex) {
+    return new THREE.ShaderMaterial({
+      uniforms: { alphaMap: { value: alphaTex }, gain: { value: 0.6 } },
+      vertexShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vW;
+        void main() { vUv = uv; vN = normalize(mat3(modelMatrix) * normal); vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+      fragmentShader: `uniform sampler2D alphaMap; uniform float gain; varying vec2 vUv; varying vec3 vN; varying vec3 vW;
+        float band(float t, float c, float w) { float d = abs(fract(t - c + 0.5) - 0.5) / w; return exp(-d * d * 2.2); }
+        void main() {
+          float m = texture2D(alphaMap, vUv).g; if (m < 0.01) discard;
+          vec3 R = reflect(normalize(vW - cameraPosition), normalize(vN));
+          float t = atan(R.x, R.z) / 6.2831853 - 0.28 * R.y;   // eğik: yükseklik arttıkça bant yana kayar
+          float s = clamp(band(t, 0.12, 0.07) + 0.8 * band(t, 0.47, 0.045) + band(t, 0.78, 0.09), 0.0, 1.0);
+          gl_FragColor = vec4(vec3(gain * s * m), 1.0);
+        }`,
+      transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.DstColorFactor, blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor
+    });
   }
   function studioEnv() {
     if (envTex) return envTex;
@@ -1827,6 +2087,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
     }
     g.add(front, back, edges);
     if (matLak) g.add(new THREE.Mesh(geo, matLak));   // lak, folyonun da üstünde
+    if (matLakBand) g.add(new THREE.Mesh(geo, matLakBand));   // mat kâğıtta lak ayrıca ışık bandı taşır: baskı mat, lak parlak
     if (matFoil) g.add(new THREE.Mesh(geo, matFoil));   // baskının hemen üstünde, maskeyle kırpılmış folyo
     g.userData.pid = p.id;
     return g;
@@ -1836,7 +2097,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
     model.clear(); pivots = []; edgeObjs = [];
     const mat = side => new THREE.MeshLambertMaterial({ side, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     const off = { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 };
-    matFront = new THREE.MeshPhysicalMaterial({ side: THREE.FrontSide, map: texture, metalness: 0, envMap: studioEnv(), ...GLOSS[D.gloss] || GLOSS.parlak, ...off });
+    matFront = new THREE.MeshPhysicalMaterial({ side: THREE.FrontSide, map: texture, metalness: 0, envMap: studioEnv(), ...GLOSS[D.gloss] || GLOSS.parlak, ...(!metalOn() && D.gloss === 'mat' ? { roughness: 1, envMapIntensity: 0.03 } : {}), ...off });
     if (metalOn()) Object.assign(matFront, { metalness: 1, roughness: 0.22, clearcoat: 0, envMapIntensity: 0.9 });
     if (lakTex) {
       Object.assign(matFront, { roughness: 1, roughnessMap: lakTex });
@@ -1852,9 +2113,10 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
       // Kısmi UV lak (operatörün örnek fotoğrafları): mat zeminin üstünde pürüzsüz, ayna gibi film. Işık yansımadığı açıda mat yüzeyden DAHA KOYU ve derin
       // (parlak siyah, matın gri sisinden koyu), yansıyınca yumuşak degrade/uzun parlama. Bu yüzden toplamalı değil, alan içinde yüzeyin YERİNE geçen katman:
       // aynı baskı (map) biraz koyu (color) + keskin yansıma. Kenarında lak kalınlığı kadar hafif kabartma (bump).
-      matLak = new THREE.MeshPhysicalMaterial({ map: texture, color: 0xd4d4d4, metalness: 0, roughness: 0.04, ior: 1.6, envMap: lakEnv(), envMapIntensity: 1.6, alphaMap: lakAlpha, transparent: true,
+      matLak = metalOn() ? lakOverlayMat(lakAlpha) : new THREE.MeshPhysicalMaterial({ map: texture, color: 0xd4d4d4, metalness: 0, roughness: 0.04, ior: 1.6, envMap: lakEnv(), envMapIntensity: 1.3, alphaMap: lakAlpha, transparent: true,
         bumpMap: bumpTex || null, bumpScale: 4, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-    } else matLak = null;
+      matLakBand = !metalOn() && D.gloss === 'mat' ? lakOverlayMat(lakAlpha) : null;
+    } else { matLak = null; matLakBand = null; }
     matBendBack = textureBack ? new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, map: textureBack, roughness: 0.95, metalness: 0 }) : null;
     matBendFront = new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, map: texture, metalness: 0, envMap: studioEnv(), ...GLOSS[D.gloss] || GLOSS.parlak, ...off });
     matSide = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide, color: backTone(card), flatShading: true });
@@ -1886,7 +2148,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
       for (const h of D.hinges) if (h.parent === pid || h.child === pid) { const a = v3(h.a); for (const [r0, r1] of spansFor(h)) out.push([[a.x + r0.x, a.z + r0.z], [a.x + r1.x, a.z + r1.z]]); }
       return out; };
     const make = (pid, parent) => {
-      const g = panelObj(P.get(pid), (D.kalin || 0) > 0 ? hingeSegs(pid) : null); parent.add(g);
+      const g = panelObj(P.get(pid), (D.kalin || 0) > 0 ? hingeSegs(pid).concat(P.get(pid).noWall || []) : null); parent.add(g);
       for (const h of kids.get(pid) || []) {
         const c = P.get(h.child);
         const a = v3(h.a), axis = v3(h.b).sub(a).normalize();
@@ -1898,11 +2160,12 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
         // kat çizgisinin gerçekten var olduğu aralıklar: iki panelin de kenarının üstünde durduğu yerler. Yarık/delik açıklığında
         // (askı yarığı gibi) kat yok, köşe şeridi de olmasın.
         const spans = spansFor(h);
-        pivots.push({ pivot, axis, sign, key: h.key, spans, pid: h.child, parentPid: h.parent, open: 0, openTo: 0, pos0: a.clone(), inner, bpos: v3(h.b), strip: null, stripKey: '' });
+        pivots.push({ pivot, axis, sign, key: h.key, spans, grp: h.grp !== undefined ? h.grp : h.child, pid: h.child, parentPid: h.parent, open: 0, openTo: 0, pos0: a.clone(), inner, bpos: v3(h.b), strip: null, stripKey: '' });
         make(h.child, inner);
       }
     };
-    make(D.base, model);
+    hlObjs = []; make(D.base, model);
+    buildKoruk(); applyHighlight();
     track = null;
   }
 
@@ -1951,6 +2214,75 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
     pv.strip.position.copy(pv.pos0); pv.strip.position.y += yo;
     pv.strip.geometry.setDrawRange(0, 6 * pv.spans.length * Math.round(pv.stripN * clamp01(aDeg / th)));
   }
+  // ── körük sürekli yüzey (deneme): kesit çizgisi her seviyede zincir açılarından hesaplanır, komşu seviyeler tek ağda birleşir ──
+  // seçim vurgusu (Kutu ayarı): panelin üstüne yarı saydam renkli kaplama; kaplama panel grubunun çocuğu, animasyonla birlikte gider
+  let hlMap = new Map(), hlObjs = [];
+  function applyHighlight() {
+    for (const o of hlObjs) { o.parent && o.parent.remove(o); o.material.dispose(); } hlObjs = [];
+    if (!D || !hlMap.size) return;
+    model.traverse(g => {
+      if (!g.isGroup || g.userData.pid === undefined) return;
+      const pv = pivots.find(q => q.pid === g.userData.pid), orig = pv ? pv.grp : g.userData.pid, col = hlMap.get(orig); if (col == null) return;
+      const fm = g.children.find(c => c.isMesh && c.material === matFront); if (!fm) return;
+      const m = new THREE.Mesh(fm.geometry, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
+      g.add(m); hlObjs.push(m);
+    });
+  }
+  let korukAgs = [];
+  function buildKoruk() {
+    korukAgs = [];
+    for (const ch of D.korukAg || []) {
+      const F = D.frame, nL = ch.levels.length, T = D.kalin || 0; ch.strips = [];
+      for (let i = 0; i < 3; i++) {
+        const pos = new Float32Array(nL * 6), uv = new Float32Array(nL * 4), idx = [];
+        for (let k = 0; k < nL; k++) {
+          const lv = ch.levels[k], a = ch.a[i], u = lv.s - (a[0] * ch.t[0] + a[1] * ch.t[1]), bx = a[0] + ch.t[0] * u, by = a[1] + ch.t[1] * u;
+          for (let j = 0; j < 2; j++) { const lam = lv.al[i][j] * ch.w[i], px = bx + ch.nv[i][0] * lam, py = by + ch.nv[i][1] * lam;
+            uv[(2 * k + j) * 2] = (px - F.x0) / F.bw; uv[(2 * k + j) * 2 + 1] = 1 - (py - F.y0) / F.bh; }
+          if (k < nL - 1) { const a0 = 2 * k, b0 = 2 * k + 1, c0 = 2 * k + 2, d0 = 2 * k + 3; idx.push(a0, b0, c0, b0, d0, c0); }
+        }
+        const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); geo.setIndex(idx);
+        const geoB = T > 0 ? new THREE.BufferGeometry() : geo;
+        if (T > 0) { geoB.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos.length), 3)); geoB.setAttribute('uv', geo.attributes.uv); geoB.setIndex(idx); }
+        const g = new THREE.Group(), front = new THREE.Mesh(geo, matFront), back = new THREE.Mesh(geoB, matBack);
+        front.castShadow = back.castShadow = true; g.add(front, back);
+        if (matLak) g.add(new THREE.Mesh(geo, matLak)); if (matLakBand) g.add(new THREE.Mesh(geo, matLakBand)); if (matFoil) g.add(new THREE.Mesh(geo, matFoil));
+        g.userData.pid = ch.ids[i]; model.add(g); ch.strips.push({ geo, geoB, pos, idx });
+      }
+      korukAgs.push(ch);
+    }
+    if (korukAgs.length) {   // düz konumda yüzey normali +y olsun (baskı yukarı): ters çıkarsa sarımı çevir
+      updateKoruk(0);
+      const st = korukAgs[0].strips[0], ny = st.geo.attributes.normal ? st.geo.attributes.normal.getY(0) : 1;
+      if (ny < 0) { for (const ch of korukAgs) for (const q of ch.strips) { for (let i = 0; i < q.idx.length; i += 3) { const x = q.idx[i + 1]; q.idx[i + 1] = q.idx[i + 2]; q.idx[i + 2] = x; }
+        q.geo.setIndex(q.idx); if (q.geoB !== q.geo) q.geoB.setIndex(q.idx); } updateKoruk(0); }
+    }
+  }
+  function updateKoruk(tt) {
+    if (!korukAgs.length) return;
+    const steps = [...new Set(pivots.map(p => D.settings[p.key].step))].sort((a, b) => a - b);
+    const n = steps.length || 1, L = n - (n - 1) * OVERLAP, T = D.kalin || 0;
+    const loc = st => ease(clamp01(tt * L - steps.filter(x => x < st).length * (1 - OVERLAP)));
+    for (const ch of korukAgs) {
+      const l = ch.keys.map(k => loc((D.settings[k] || {}).step || 1)), nx = ch.nv[0][0], ny = ch.nv[0][1];
+      for (let k = 0; k < ch.levels.length; k++) {
+        const lv = ch.levels[k], th = lv.th, A = [(PI - th) * l[0], (PI - 2 * th) * l[1], (PI - th) * l[2]];
+        const h0 = A[0], h1 = h0 - A[1], h2 = h1 + A[2], dirs = [h0, h1, h2].map(h => [-Math.cos(h), Math.sin(h)]);
+        const a = ch.a[0], u = lv.s - (a[0] * ch.t[0] + a[1] * ch.t[1]), Hx = a[0] + ch.t[0] * u, Hy = a[1] + ch.t[1] * u;
+        let vx = 0, vy = 0;
+        for (let i = 0; i < 3; i++) {
+          for (let j = 0; j < 2; j++) { const al = lv.al[i][j] * ch.w[i], xi = vx + al * dirs[i][0], eta = vy + al * dirs[i][1], o = (2 * k + j) * 3, P = ch.strips[i].pos;
+            P[o] = Hx - xi * nx; P[o + 1] = -eta; P[o + 2] = Hy - xi * ny; }
+          vx += ch.w[i] * dirs[i][0]; vy += ch.w[i] * dirs[i][1];
+        }
+      }
+      for (const q of ch.strips) {
+        q.geo.attributes.position.needsUpdate = true; q.geo.computeVertexNormals(); q.geo.computeBoundingSphere();
+        if (q.geoB !== q.geo) { const pb = q.geoB.attributes.position.array, nm = q.geo.attributes.normal.array;
+          for (let i = 0; i < pb.length; i++) pb[i] = q.pos[i] - T * nm[i]; q.geoB.attributes.position.needsUpdate = true; q.geoB.computeBoundingSphere(); }
+      }
+    }
+  }
   function applyRaw(tt, withOpen) {
     const steps = [...new Set(pivots.map(p => D.settings[p.key].step))].sort((a, b) => a - b);
     const n = steps.length || 1, L = n - (n - 1) * OVERLAP;
@@ -1971,6 +2303,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
       if ((D.kalin || 0) > 0) bendStrip(pv, s, a, yo);
       else if (pv.strip) pv.strip.visible = false;
     }
+    updateKoruk(tt);
   }
 
   // katlama yolunu önceden örnekle: kutu kaymasın, zemine girmesin, kamera yumuşak takip etsin
@@ -2100,7 +2433,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
     const byPid = new Map(pivots.map(q => [q.pid, q]));
     while (pv && D.settings[pv.key] && D.settings[pv.key].esnek) pv = byPid.get(pv.parentPid) || null;
     if (!pv) return;
-    pv.openTo = pv.openTo ? 0 : 1; animateOpen();
+    const nt = pv.openTo ? 0 : 1; for (const q of pivots) if (q.grp === pv.grp) q.openTo = nt; animateOpen();
     opts.onOpen && opts.onOpen();
   }
   const el = renderer.domElement;
@@ -2114,13 +2447,15 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
     ndc.set(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
     const hit = ray.intersectObject(model, true).find(i => i.object.isMesh);
-    for (let o = hit && hit.object; o; o = o.parent) if (o.userData.pid !== undefined) return o.userData.pid;
+    for (let o = hit && hit.object; o; o = o.parent) if (o.userData.pid !== undefined) { const q = pivots.find(pv => pv.pid === o.userData.pid); return q ? q.grp : o.userData.pid; }
     return null;
   };
   el.addEventListener('pointerup', e => {
-    if (!opts.onSelect || !D || e.button !== 0 || !down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
-    opts.onSelect(pickPid(e.clientX, e.clientY));
+    if (!D || !down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;   // sürükleme (döndür / kaydır) seçim değil
+    if (e.button === 0 && opts.onSelect) opts.onSelect(pickPid(e.clientX, e.clientY), e);
+    else if (e.button === 2 && opts.onContext) opts.onContext(pickPid(e.clientX, e.clientY), e);
   });
+  el.addEventListener('contextmenu', e => e.preventDefault());
   el.addEventListener('pointerup', e => {
     if (e.pointerType !== 'touch' || !down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 10) return;
     const now = performance.now();
@@ -2136,6 +2471,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
     requestAnimationFrame(() => { hoverQueued = false; el.style.cursor = canOpen() && pick(hx, hy) ? 'pointer' : ''; });
   });
 
+  let callouts = [], coEl = null, coSig = '', coMoved = 0, coShown = false, olcuOn = false;   // uçan etiketler (aşağıda): döngü ilk karede okur
   (function loop() {
     requestAnimationFrame(loop);
     controls.update();
@@ -2145,7 +2481,174 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
     else if (shDirty || sg !== shSig) { shSig = sg; shDirty = false; shadowPass(14); shIdle = performance.now(); shFine = false; }
     else if (!shFine && performance.now() - shIdle > 180) { shadowPass(64); shFine = true; }
     renderer.render(scene, camera);
+    coTick(sg);
   })();
+
+  // ── uçan etiketler (müşteri sunumu): görünüm durunca modelin üstündeki noktadan çizgiyle çıkan etiket; dönerken gizlenir ──
+  function coEnsure() {
+    if (coEl) return;
+    coEl = document.createElement('div');
+    coEl.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:3;opacity:0;transition:opacity .35s';
+    container.appendChild(coEl);
+  }
+  function coLayout() {
+    coEl.innerHTML = '';
+    const W = container.clientWidth, H = container.clientHeight; if (!W || !H || !D) return;
+    const groups = new Map(); model.traverse(o => { if (o.isGroup && o.userData.pid !== undefined && !groups.has(o.userData.pid)) groups.set(o.userData.pid, o); });
+    const inPoly = (p, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      if ((yi > p[1]) !== (yj > p[1]) && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) c = !c; } return c; };
+    const cam = camera.position, scr = P => { const v = P.clone().project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; };
+    const box = new THREE.Box3().setFromObject(model), [cx] = scr(box.getCenter(new THREE.Vector3()));
+    let Lx = Infinity, Rx = -Infinity;   // modelin ekrandaki sol / sağ sınırı: etiketler bunun dışına
+    for (let k = 0; k < 8; k++) { const [x] = scr(new THREE.Vector3(k & 1 ? box.max.x : box.min.x, k & 2 ? box.max.y : box.min.y, k & 4 ? box.max.z : box.min.z)); Lx = Math.min(Lx, x); Rx = Math.max(Rx, x); }
+    const hits = [];
+    for (const c of callouts) {
+      let best = null;
+      for (const pt of c.pts) {
+        const p = D.panels.find(q => inPoly(pt, q.pts) && !(q.holes || []).some(h => inPoly(pt, h))); if (!p) continue;
+        const g = groups.get(p.id); if (!g) continue;
+        const P = new THREE.Vector3(pt[0], 0.05, pt[1]).applyMatrix4(g.matrixWorld), N = new THREE.Vector3(0, 1, 0).transformDirection(g.matrixWorld);
+        const to = cam.clone().sub(P), dist = to.length(), facing = N.dot(to) / dist; if (facing < 0.3) continue;
+        ray.set(cam, P.clone().sub(cam).normalize()); const h = ray.intersectObject(model, true).find(i => i.object.isMesh && i.object.visible);
+        if (h && h.distance < dist - 1) continue;   // önünde başka parça var
+        const [sx, sy] = scr(P); if (sx < 8 || sx > W - 8 || sy < 8 || sy > H - 8) continue;
+        if (!best || facing > best.f) best = { f: facing, sx, sy };
+      }
+      if (best) hits.push({ c, ...best });
+    }
+    // etiketler modelin iki yanına: noktası soldaysa sola, sağdaysa sağa; aynı yanda üst üste binmesin
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('width', W); svg.setAttribute('height', H); svg.style.cssText = 'position:absolute;inset:0;overflow:visible';
+    coEl.appendChild(svg);
+    for (const h of hits) h.side = h.sx < cx ? -1 : 1;
+    for (;;) {   // iki yan dengeli: fazla olan yandan merkeze en yakın olanı öbür yana al
+      const L = hits.filter(h => h.side < 0), R = hits.filter(h => h.side > 0), [big, s2] = L.length > R.length + 1 ? [L, 1] : R.length > L.length + 1 ? [R, -1] : [null];
+      if (!big) break; big.sort((a, b) => Math.abs(a.sx - cx) - Math.abs(b.sx - cx))[0].side = s2;
+    }
+    for (const side of [-1, 1]) {
+      const list = hits.filter(h => h.side === side).sort((a, b) => a.sy - b.sy);
+      let lastY = -1e9;
+      for (const h of list) {
+        const pill = document.createElement('div');
+        pill.style.cssText = 'position:absolute;background:#fff;border:1.5px solid #1d1d1b;border-radius:999px;padding:7px 16px;font:600 13px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#1d1d1b;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.14);display:flex;align-items:center;gap:8px;transform:scale(.92);transition:transform .35s';
+        pill.innerHTML = (h.c.color ? `<span style="width:12px;height:12px;border-radius:50%;background:${h.c.color};box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"></span>` : '') + h.c.label.replace(/[&<>]/g, x => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[x]));
+        coEl.appendChild(pill);
+        const pw = pill.offsetWidth, ph = pill.offsetHeight;
+        const px = side < 0 ? Math.max(12, Lx - 48 - pw) : Math.min(W - pw - 12, Rx + 48);
+        let py = Math.max(12, Math.min(H - ph - 12, h.sy - 40 - ph / 2)); if (py < lastY + ph + 10) py = lastY + ph + 10; lastY = py;
+        pill.style.left = px + 'px'; pill.style.top = py + 'px';
+        requestAnimationFrame(() => { pill.style.transform = 'scale(1)'; });
+        const ex = side < 0 ? px + pw : px, ey = py + ph / 2;
+        const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        Object.entries({ x1: h.sx, y1: h.sy, x2: ex, y2: ey, stroke: '#1d1d1b', 'stroke-width': 1.3 }).forEach(([k, v]) => ln.setAttribute(k, v));
+        const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        Object.entries({ cx: h.sx, cy: h.sy, r: 6.5, fill: '#fff', stroke: '#1d1d1b', 'stroke-width': 1.5 }).forEach(([k, v]) => dot.setAttribute(k, v));
+        svg.append(ln, dot);
+      }
+    }
+    if (olcuOn && mode !== 'flat' && !container.closest('.noolcu')) olcuCiz(svg, W, H, scr);
+  }
+  // ── ölçü çizgileri (operatör, 6 Eki 2026): görünen parçaların kendi kenar ölçüleri, dış hatta ──
+  // Her panelin kenarları (düz ardışık parçalar birleşik) ekrana izdüşürülür; bir yanı modelin üstünde, öbür yanı boşlukta kalan kenar dış hattır.
+  // Önünde başka parça olan kenar atlanır. Aynı uzunlukta paralel kenar bir kez yazılır (üstteki/soldaki seçilir), en fazla 8 ölçü.
+  function olcuCiz(svg, W, H, scr) {
+    const groups = new Map(); model.traverse(o => { if (o.isGroup && o.userData.pid !== undefined && !groups.has(o.userData.pid)) groups.set(o.userData.pid, o); });
+    const meshes = []; model.traverse(o => { if (o.isMesh && o.visible) meshes.push(o); });
+    const hitAt = (x, y) => { ndc.set(x / W * 2 - 1, -(y / H) * 2 + 1); ray.setFromCamera(ndc, camera); return ray.intersectObjects(meshes, false)[0] || null; };
+    const cand = [], secili = D.olcuPanel || [];
+    // operatörün seçtiği parçalar: her parçanın eni ve boyu (iki yön); her yönde yalnız dış hattaki görünen kenar, yoksa o ölçü yazılmaz
+    const kos = pts => { const n = pts.length, out = [], yon = (a, b) => Math.atan2(b[1] - a[1], b[0] - a[0]); let bas = 0;
+      for (let k = 1; k <= n; k++) { const a = pts[bas], b = pts[k % n], c = pts[(k + 1) % n], sap = Math.abs(((yon(a, b) - yon(b, c) + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
+        if (k === n || sap > 0.05) { if (Math.hypot(pts[k % n][0] - pts[bas][0], pts[k % n][1] - pts[bas][1]) >= 3) out.push([pts[bas], pts[k % n]]); bas = k % n; if (bas === 0) break; } }
+      return out; };
+    for (const pid of secili) {
+      const g = groups.get(pid), pn = D.panels.find(q => q.id === pid); if (!g || !pn) continue;
+      const ks = kos(pn.pts); if (!ks.length) continue;
+      const Lk = k => Math.hypot(k[1][0] - k[0][0], k[1][1] - k[0][1]), u = k => [(k[1][0] - k[0][0]) / Lk(k), (k[1][1] - k[0][1]) / Lk(k)];
+      const ana = ks.reduce((m, k) => Lk(k) > Lk(m) ? k : m, ks[0]), ua = u(ana);
+      const C3 = new THREE.Vector3(pn.c[0], 0, pn.c[1]).applyMatrix4(g.matrixWorld), [pcx, pcy] = scr(C3);
+      for (const grup of [ks.filter(k => Math.abs(u(k)[0] * ua[0] + u(k)[1] * ua[1]) > 0.95), ks.filter(k => Math.abs(u(k)[0] * ua[0] + u(k)[1] * ua[1]) < 0.3)]) {
+        const enUzun = Math.max(0, ...grup.map(Lk)); let best = null;
+        for (const k of grup) {
+          const len = Lk(k); if (len < enUzun * 0.9) continue;   // parçanın asıl ölçüsü: o yöndeki en uzun kenarlar
+          const A3 = new THREE.Vector3(k[0][0], 0, k[0][1]).applyMatrix4(g.matrixWorld), B3 = new THREE.Vector3(k[1][0], 0, k[1][1]).applyMatrix4(g.matrixWorld);
+          const [x1, y1] = scr(A3), [x2, y2] = scr(B3), L = Math.hypot(x2 - x1, y2 - y1); if (L < 12) continue;
+          const mx = (x1 + x2) / 2, my = (y1 + y2) / 2; let nx = -(y2 - y1) / L, ny = (x2 - x1) / L;
+          if (nx * (mx - pcx) + ny * (my - pcy) < 0) { nx = -nx; ny = -ny; }   // parçanın dışına doğru
+          const M3 = A3.clone().add(B3).multiplyScalar(0.5), hIc = hitAt(mx - nx * 4, my - ny * 4);
+          if (hIc && hIc.distance < camera.position.distanceTo(M3) - Math.max(2, len * 0.05)) continue;   // önü kapalı
+          const dis = !hitAt(mx + nx * 6, my + ny * 6); if (!dis) continue;   // operatör: yalnız en dıştaki kenarlar (kutunun içine düşen ölçü kalabalık yapar)
+          const puan = L;
+          if (!best || puan > best.puan) best = { puan, x1, y1, x2, y2, len, ox: nx, oy: ny, my, mx, dir: B3.clone().sub(A3).normalize(), secili: true };
+        }
+        if (best) cand.push(best);
+      }
+    }
+    if (!secili.length) for (const p of D.panels) {
+      const g = groups.get(p.id); if (!g || p.pts.length < 3) continue;
+      const pts = p.pts, n = pts.length, kosu = [];
+      const yon = (a, b) => Math.atan2(b[1] - a[1], b[0] - a[0]);
+      let bas = 0; for (let k = 1; k <= n; k++) {   // aynı doğrultudaki ardışık parçaları tek kenar say (yay ve eğri parçaları ayrı kalır)
+        const a = pts[bas], b = pts[k % n], c = pts[(k + 1) % n];
+        const sapma = Math.abs(((yon(a, b) - yon(b, c) + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
+        if (k === n || sapma > 0.05) { kosu.push([pts[bas], pts[k % n]]); bas = k % n; if (bas === 0) break; }
+      }
+      for (const [A, B] of kosu) {
+        const len = Math.hypot(B[0] - A[0], B[1] - A[1]); if (len < 6) continue;
+        const A3 = new THREE.Vector3(A[0], 0, A[1]).applyMatrix4(g.matrixWorld), B3 = new THREE.Vector3(B[0], 0, B[1]).applyMatrix4(g.matrixWorld);
+        const [x1, y1] = scr(A3), [x2, y2] = scr(B3), L = Math.hypot(x2 - x1, y2 - y1); if (L < 30) continue;
+        const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, nx = -(y2 - y1) / L, ny = (x2 - x1) / L;
+        const h1 = hitAt(mx + nx * 6, my + ny * 6), h2 = hitAt(mx - nx * 6, my - ny * 6);
+        if (!!h1 === !!h2) continue;   // iki yanı da dolu ya da boş: dış hat değil
+        const s = h1 ? -1 : 1, ox = nx * s, oy = ny * s;   // boş yana doğru
+        const M3 = A3.clone().add(B3).multiplyScalar(0.5), hin = h1 || h2;
+        if (hin && hin.distance < camera.position.distanceTo(M3) - Math.max(2, len * 0.05)) continue;   // önünde başka parça var
+        cand.push({ x1, y1, x2, y2, len, ox, oy, my, mx, dir: B3.clone().sub(A3).normalize() });
+      }
+    }
+    cand.sort((a, b) => a.my - b.my || a.mx - b.mx);
+    const secilen = [];
+    for (const c of cand) {
+      if (!c.secili && secilen.some(d => Math.abs(d.dir.dot(c.dir)) > 0.99 && Math.abs(d.len - c.len) < 2.5)) continue;
+      const lx = c.mx + c.ox * 38, ly = c.my + c.oy * 38;
+      if (secilen.some(d => Math.hypot(d.lx - lx, d.ly - ly) < (c.secili ? 12 : 40))) continue;   // seçili parçada yalnız birebir üst üste binen düşer
+      secilen.push({ ...c, lx, ly }); if (!c.secili && secilen.length >= 8) break;
+    }
+    const el = (tag, at) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const k in at) e.setAttribute(k, at[k]); return e; };
+    // operatör (6 Eki 2026): üst üste binen ölçüler kafa karıştırıyor: etiket ya da çizgisi öncekiyle çakışan ölçü hiç çizilmez; uzun ölçü önce
+    secilen.sort((p, q) => q.len - p.len);
+    const kutular = [], cakisir = (r, q) => r.l < q.r && q.l < r.r && r.t < q.b && q.t < r.b;
+    for (const c of secilen) {
+      const { x1, y1, x2, y2, ox, oy } = c, L = Math.hypot(x2 - x1, y2 - y1), ux = (x2 - x1) / L, uy = (y2 - y1) / L, tx = -uy * 5, ty = ux * 5, d = 22;
+      const a = [x1 + ox * d, y1 + oy * d], b = [x2 + ox * d, y2 + oy * d];
+      const cizgiler = [
+        el('line', { x1, y1, x2: a[0] + ox * 5, y2: a[1] + oy * 5, stroke: '#1d1d1b', 'stroke-width': 0.8, 'stroke-opacity': 0.45 }),
+        el('line', { x1: x2, y1: y2, x2: b[0] + ox * 5, y2: b[1] + oy * 5, stroke: '#1d1d1b', 'stroke-width': 0.8, 'stroke-opacity': 0.45 }),
+        el('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: '#1d1d1b', 'stroke-width': 1.3 }),
+        el('line', { x1: a[0] - tx, y1: a[1] - ty, x2: a[0] + tx, y2: a[1] + ty, stroke: '#1d1d1b', 'stroke-width': 1.3 }),
+        el('line', { x1: b[0] - tx, y1: b[1] - ty, x2: b[0] + tx, y2: b[1] + ty, stroke: '#1d1d1b', 'stroke-width': 1.3 })];
+      const pill = document.createElement('div');
+      pill.style.cssText = 'position:absolute;background:#fff;border:1.3px solid #1d1d1b;border-radius:999px;padding:3px 10px;font:600 12px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#1d1d1b;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,.12);transform:translate(-50%,-50%)';
+      pill.textContent = `${Math.round(c.len)} mm`;
+      pill.style.left = Math.max(30, Math.min(W - 30, (a[0] + b[0]) / 2 + ox * 14)) + 'px'; pill.style.top = Math.max(14, Math.min(H - 14, (a[1] + b[1]) / 2 + oy * 14)) + 'px';
+      coEl.appendChild(pill);
+      const w2 = pill.offsetWidth / 2 + 4, h2 = pill.offsetHeight / 2 + 4, px = parseFloat(pill.style.left), py = parseFloat(pill.style.top);
+      const kut = { l: px - w2, r: px + w2, t: py - h2, b: py + h2 };
+      const cz = { l: Math.min(a[0], b[0]) - 4, r: Math.max(a[0], b[0]) + 4, t: Math.min(a[1], b[1]) - 4, b: Math.max(a[1], b[1]) + 4 };   // ölçü çizgisinin kutusu
+      const ince = Math.min(cz.r - cz.l, cz.b - cz.t) < 14;   // eğik çizginin kutusu büyük: yalnız yatay/dikeye yakın çizgileri kıyasla
+      if (kutular.some(q => cakisir(kut, q.kut) || (ince && q.ince && cakisir(cz, q.cz)))) { pill.remove(); continue; }
+      kutular.push({ kut, cz, ince });
+      svg.append(...cizgiler);
+    }
+  }
+  function coTick(sg) {
+    if (!callouts.length && !olcuOn) { if (coEl && coShown) { coEl.style.opacity = 0; coShown = false; } return; }
+    coEnsure();
+    const off = (!olcuOn && !!container.closest('.nocall')) || !model.visible;
+    const r3 = v => (Math.abs(v) < 5e-4 ? 0 : v).toFixed(3);   // -0.000 / 0.000 titremesi hareket sayılmasın
+    const sig = [...camera.position.toArray(), ...camera.quaternion.toArray()].map(r3).join() + String(sg).replace(/-0\.00(?!\d)/g, '0.00') + container.clientWidth + 'x' + container.clientHeight + mode + (container.closest('.noolcu') ? 'n' : ''), now = performance.now();
+    if (sig !== coSig || off) { coSig = sig; coMoved = now; if (coShown) { coEl.style.opacity = 0; coShown = false; } return; }
+    if (!coShown && now - coMoved > 650 && !playing && !turning && !opening) { coLayout(); coEl.style.opacity = 1; coShown = true; }
+  }
 
   // ── yüzen kontrol paneli (editör ve müşteri dosyası aynısını kullanır) ──
   const LB = Object.assign({ tip: 'Devir', spin: 'Çevir', home: 'Başa dön', zin: 'Yakınlaş', zout: 'Uzaklaş',
@@ -2211,7 +2714,8 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
     get mode() { return mode; },
     load(data) {
       model.visible = !canGrp;
-      D = data; card = data.card || card; ctl.style.display = ''; foilColor = data.foilColor || null;
+      D = data; if (data.slit === false) { D.slitAll = D.lines.slit || []; D.lines.slit = []; }
+      card = data.card || card; ctl.style.display = ''; foilColor = data.foilColor || null;
       shOn = data.shadow !== false; ground.visible = shOn; shDirty = true;
       // editör "home"u açıkça verir (null = sırt üstü); müşteri dosyasında home yok: başlangıç duruşu = home
       const q = a => a ? new THREE.Quaternion().fromArray(a) : new THREE.Quaternion();
@@ -2276,6 +2780,11 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
     // karton kalınlığı (mm): parçalar yeniden kurulur, o anki açılar korunur
     setKalinlik(mm) { if (!D) return; D.kalin = mm || 0; const t0 = t, m0 = mode; build(); t = t0; mode = m0; track = null; place(false); },
     // pilyaj izi: 0 yok, 1 hafif, 2 belirgin
+    setSlit(on) { if (!D) return; if (!D.slitAll) D.slitAll = D.lines.slit || []; D.lines.slit = on ? D.slitAll : []; const t0 = t, m0 = mode; compose(); build(); t = t0; mode = m0; track = null; place(false); },
+    setOlcuPanel(list) { if (D) D.olcuPanel = list || []; coShown = false; coSig = ''; if (coEl) coEl.style.opacity = 0; },
+    setOlcu(on) { olcuOn = !!on; coShown = false; coSig = ''; if (coEl) coEl.style.opacity = 0; },
+    setCallouts(list) { callouts = list || []; coShown = false; coSig = ''; if (coEl) coEl.style.opacity = 0; },
+    setHighlight(map) { hlMap = map || new Map(); applyHighlight(); },
     setPilyaj(v) { if (!D) return; D.pilyaj = v || 0; const t0 = t, m0 = mode; compose(); build(); t = t0; mode = m0; track = null; place(false); },
     // arka baskı aynalaması: 'x' yatay (kitap gibi çevir), 'y' dikey, 'yok'
     setArkaAyna(m) { if (!D) return; D.arkaAyna = m; compose(); },
@@ -2369,13 +2878,15 @@ const viewer = createViewer(THREE, OrbitControls, view, {
     orbit: 'Döndür: sürükleyince kutunun etrafında dön', pan: 'Taşı: sürükleyince kaydır (sağ tık her modda kaydırır)',
     fit: 'Sığdır: kutuyu ortala, Döndür moduna dön' },
   onTurn: () => { S.orient = keepOnBase(viewer.orient); $('rngT').value = 1000; setFlatBtn(); },
-  onSelect: pid => selectPanel(pid),
+  onSelect: (pid, e) => selectPanel(pid, !!(e && e.shiftKey)),
+  onContext: (pid, e) => openCtx(pid, e),
 });
 
 // PDF'i dieline çizgileri olmadan beyaz zemine çiz (tasarım görüntüsü)
 async function renderArt(isStale) {
   // varak: adı FOIL_RE'ye uyan spot renkleri ve katmanlar
   const foilHex = new Set([...(S.spots || new Map())].filter(([, n]) => n.some(x => FOIL_RE.test(x))).map(([h]) => h));
+  const provaHex = new Set([...(S.spots || new Map()), ...((S.spots && S.spots.tonlar) || new Map())].filter(([, n]) => n.some(x => PROVA_RE.test(x))).map(([h]) => h));
   const foilLayers = occGroups(S.occ).filter(([, g]) => FOIL_RE.test(g?.name || '')).map(([id]) => id);
   // BEYAZ boya: ana baskıdan çıkarılır, ayrı maske olarak beyaz mürekkep gibi karton üstüne çizilir
   // BEYAZ'ın tonları (tint) beyazdan spotun %100 rengine doğru çizgi üstündedir; hepsi BEYAZ sayılır
@@ -2437,7 +2948,7 @@ async function renderArt(isStale) {
   const maskImgsOnly = (ctx, pred) => { const orig = ctx.drawImage; ctx.putImageData = () => {};
     ctx.drawImage = function (...a) { const st = String(this.fillStyle).toLowerCase(); if (pred(st) && looksMask(a[0], st)) return orig.apply(this, a); }; };
   // Şeffaflık grupları (Illustrator çarpma/overprint): pdf.js grup içindeki nesneleri AYRI geçici tuvallere çizip sonra ana tuvale bindirir; tek bağlama (ctx) yapılan
-  // süzgeç bunları görmezdi (bir dosyada LAK 105, BEYAZ 3026 çizim ana tuvalde hiç yok). Süzgeci CanvasRenderingContext2D prototipine koyarız (sadece o geçişte).
+  // süzgeç bunları görmezdi (bir test dosyasında: LAK 105, BEYAZ 3026 çizim ana tuvalde hiç yok). Süzgeci CanvasRenderingContext2D prototipine koyarız (sadece o geçişte).
   // imgWhite: maske geçişlerinde grup tuvalleri sadece içlerinde beyazdan başka renk yoksa ana tuvale aktarılır (fotoğraf/başka baskı karışmasın), karışım normal.
   const isWhiteCanvas = (src, rawDraw) => {   // rawDraw: değiştirilmemiş drawImage (yoksa kendi çağrısı özyinelemeye girer)
     try {
@@ -2454,6 +2965,8 @@ async function renderArt(isStale) {
       P[fn] = function (...a) {
         const d = decide(String(this[prop]).toLowerCase(), fn);
         if (d === 'atla') return;
+        if (d && typeof d === 'object') {   // { alfa }: ton maskesi, beyaz saydamlıkla (grup tuvali yine 'beyaz' sayılır)
+          const old = this[prop], oa = this.globalAlpha; this[prop] = '#ffffff'; this.globalAlpha = oa * d.alfa; orig.apply(this, a); this[prop] = old; this.globalAlpha = oa; return; }
         if (d !== 'boya' && d !== 'sil') return orig.apply(this, a);
         const old = this[prop]; this[prop] = d === 'boya' ? '#ffffff' : '#000000'; orig.apply(this, a); this[prop] = old;
       }; }
@@ -2478,7 +2991,7 @@ async function renderArt(isStale) {
   // 1) ana baskı: dieline çizgileri ve varak rengi atlanır (varakın altında kâğıt / alttaki baskı kalır)
   const [cv, ctx] = newCanvas('#ffffff');
   const skip = new Set(S.groups.filter(g => S.roles[g.key] !== 'yok').map(g => g.color));
-  { const restore = protoPass((st, fn) => foilHex.has(st) || beyazHex.has(st) || lakHex.has(st) || gofreHex.has(st) || (fn === 'stroke' && skip.has(st)) ? 'atla' : undefined, false);
+  { const restore = protoPass((st, fn) => foilHex.has(st) || beyazHex.has(st) || lakHex.has(st) || gofreHex.has(st) || provaHex.has(st) || (fn === 'stroke' && skip.has(st)) ? 'atla' : undefined, false);
     try { await render(ctx); } finally { restore(); } }
   if (isStale()) return false;   // bu arada başka bir yükleme başladıysa sonucu yazma
 
@@ -2540,10 +3053,42 @@ async function renderArt(isStale) {
   S.art = cv;
   S.foil = foil;
   S.foilFlat = [...foilHex][0] || '#c9a24a';   // "Kapalı": varak spotun kendi rengiyle düz baskı
+  // Ayrım gösterimi (Özellikler kartında renge tıklama): spot → yalnız o spot ve tonları kendi renginde, üstüne gelen her şey beyaz
+  // (boşluklar korunur), görseller atlanır; C/M/Y/K → spotlar beyaz, kalan RGB'den yaklaşık kanal (kesin ayrım değil)
+  S.soloKey = null; S.soloArt = null;
+  S.soloRender = async (tip, ad) => {
+    const tumu = [...(S.spots || new Map()), ...((S.spots && S.spots.tonlar) || new Map())];
+    if (tip === 'spot') {   // lak maskesi gibi: siyah zemin, spot ve tonları beyaz (ton saydamlıkla), sonra spot rengine boyanır
+      const ort = h => ([1, 3, 5].reduce((a, i) => a + parseInt(h.substr(i, 2), 16), 0) / 3);
+      const ana = [...(S.spots || new Map())].find(([, n]) => n.includes(ad)); if (!ana) return null;
+      const bm = ort(ana[0]), hs = new Map([[ana[0], 1]]);
+      for (const [h, n] of (S.spots.tonlar || new Map())) if (n.includes(ad) && !hs.has(h)) hs.set(h, Math.max(0.05, Math.min(1, (255 - ort(h)) / Math.max(1, 255 - bm))));
+      const [c, x] = newCanvas('#000000');
+      const restore = protoPass(st => hs.has(st) ? (hs.get(st) > 0.97 ? 'boya' : { alfa: hs.get(st) }) : 'atla', true);
+      try { await render(x, BG); } finally { restore(); }
+      const id = x.getImageData(0, 0, c.width, c.height), d = id.data, R = [1, 3, 5].map(i => parseInt(ana[0].substr(i, 2), 16));
+      for (let i = 0; i < d.length; i += 4) { const m = d[i] / 255; d[i] = 255 + (R[0] - 255) * m; d[i + 1] = 255 + (R[1] - 255) * m; d[i + 2] = 255 + (R[2] - 255) * m; d[i + 3] = 255; }
+      x.putImageData(id, 0, 0); return c;
+    }
+    const [c, x] = newCanvas('#ffffff');
+    {
+      const sp = new Set(tumu.map(([h]) => h));
+      const restore = protoPass((st, fn) => (fn === 'stroke' && skip.has(st)) ? 'atla' : sp.has(st) ? 'boya' : undefined, false);
+      try { await render(x); } finally { restore(); }
+      const id = x.getImageData(0, 0, c.width, c.height), d = id.data, j = 'CMYK'.indexOf(ad), tint = { C: [0, 163, 224], M: [228, 0, 124], Y: [255, 230, 0], K: [29, 29, 27] }[ad];
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i] / 255, g = d[i + 1] / 255, b = d[i + 2] / 255, k = 1 - Math.max(r, g, b), den = 1 - k || 1;
+        const v = Math.max(0, Math.min(1, j === 3 ? k : [(1 - r - k) / den, (1 - g - k) / den, (1 - b - k) / den][j]));
+        d[i] = 255 + (tint[0] - 255) * v; d[i + 1] = 255 + (tint[1] - 255) * v; d[i + 2] = 255 + (tint[2] - 255) * v;
+      }
+      x.putImageData(id, 0, 0);
+    }
+    return c;
+  };
   if (foil && S.varak == null) S.varak = foilDefault(foilNames);
   $('rowGofre').style.display = S.hasGofre ? '' : 'none'; $('gofreAyar').style.display = S.hasGofre && S.gofre !== 'yok' ? '' : 'none'; $('selGofre').value = S.gofre || 'kabartma';
   $('rowLak').style.display = S.hasLak ? '' : 'none'; $('selLak').value = S.lak || 'parlak';
-  $('rowBeyaz').style.display = S.hasBeyaz ? '' : 'none'; $('selBeyaz').value = S.beyaz || 'multiply';
+  $('rowBeyaz').style.display = S.hasBeyaz ? '' : 'none'; $('selBeyaz').value = S.beyaz || 'opak';
   $('rowFoil').style.display = foil ? '' : 'none'; $('rowDeboss').style.display = foil ? '' : 'none';
   if (foil) $('selFoil').value = S.varak;
   S.frame = { x0: (x0 - pad) * PT2MM, y0: (y0 - pad) * PT2MM, bw: bw * PT2MM, bh: bh * PT2MM };
@@ -2551,6 +3096,72 @@ async function renderArt(isStale) {
 }
 
 // görüntüleyiciye giden veri: her şey mm, sadece katlama ağacındaki menteşeler
+// Körük dilimleme (kama): sert paralel şerit boyu boyunca aynı açıda katlanır (levha). Gerçek zarfta derinlik üstte 0'dan altta P2
+// yüksekliğine doğrusal artar. Bu yüzden körük şeritleri kat çizgisine dik N dilime bölünür; her dilimin açısı kendi yüksekliğindeki
+// derinlikten hesaplanır (üstte düz, altta tam açık). Sadece görüntüleyici verisinde olur; açınım, tablo ve kayıtlı ayar bozulmaz.
+function korukDilimle(panels, hinges, settings) {
+  const K = S.koruk; const N = (K && K.n) || 120;
+  const mod = K ? (K.mod || (K.dilim === false ? 'yok' : 'dilim')) : 'yok';
+  if (!K || mod === 'yok' || K.depth == null || K.front == null || !(K.starts || []).length) return { panels, hinges, settings };
+  const D = panelDim(K.depth), L = panelDim(K.front), fh = hinges.find(h => h.child === K.front);
+  if (!D || !L || !fh) return { panels, hinges, settings };
+  const dot = (p, t) => p[0] * t[0] + p[1] * t[1];
+  const clip = (pts, t, lo, hi) => {   // dışbükey çokgeni lo <= s <= hi şeridine kırp (Sutherland-Hodgman)
+    const cut = (poly, f) => { const out = [];
+      for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length], fa = f(a), fb = f(b);
+        if (fa >= 0) out.push(a);
+        if ((fa >= 0) !== (fb >= 0)) { const u = fa / (fa - fb); out.push([a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u]); } }
+      return out; };
+    let q = pts; if (lo > -Infinity) q = cut(q, p => dot(p, t) - lo); if (hi < Infinity && q.length) q = cut(q, p => hi - dot(p, t)); return q; };
+  const drop = new Set(), newP = [], newH = [], newS = { ...settings }, ag = []; let nid = 10000;
+  for (const st of K.starts) {
+    const ch = korukChains().find(c => c[0] === st); if (!ch) continue;
+    const hs = ch.map(id => hinges.find(h => h.child === id)); if (hs.some(h => !h)) continue;
+    const t0 = [hs[0].b[0] - hs[0].a[0], hs[0].b[1] - hs[0].a[1]], tl = Math.hypot(...t0), t = [t0[0] / tl, t0[1] / tl];
+    const ps = ch.map(id => panels.find(q => q.id === id)); if (ps.some(q => !q)) continue;
+    const all = ps.flatMap(q => q.pts.map(v => dot(v, t))), smin = Math.min(...all), smax = Math.max(...all);
+    const sf = dot([(fh.a[0] + fh.b[0]) / 2, (fh.a[1] + fh.b[1]) / 2], t), w = ps.map(q => panelDim(q.id));
+    ch.forEach(id => drop.add(id));
+    if (mod === 'yuzey') {   // sürekli yüzey: dilim yok, paylaşılan köşelerle tek ağ (viewer'da kurulur)
+      const nv = hs.map((h, i) => { let n = [-t[1], t[0]]; const c = ps[i].c; if ((c[0] - h.a[0]) * n[0] + (c[1] - h.a[1]) * n[1] < 0) n = [-n[0], -n[1]]; return n; });
+      const ww = ps.map((q, i) => Math.max(...q.pts.map(v => (v[0] - hs[i].a[0]) * nv[i][0] + (v[1] - hs[i].a[1]) * nv[i][1])));
+      const span = (q, i, s0) => {   // çokgenin bu seviyedeki enine aralığı, 0..1 (kat çizgisinden uzaklık / genişlik)
+        const sl = Math.min(...q.pts.map(v => dot(v, t))), sh = Math.max(...q.pts.map(v => dot(v, t))), sv = Math.min(sh, Math.max(sl, s0));
+        let lo = Infinity, hi = -Infinity;
+        for (let k = 0; k < q.pts.length; k++) { const a = q.pts[k], b = q.pts[(k + 1) % q.pts.length], sa = dot(a, t), sb = dot(b, t);
+          const lam = pt => (pt[0] - hs[i].a[0]) * nv[i][0] + (pt[1] - hs[i].a[1]) * nv[i][1];
+          if (Math.abs(sa - sb) < 1e-9) { if (Math.abs(sa - sv) < 1e-6) { lo = Math.min(lo, lam(a), lam(b)); hi = Math.max(hi, lam(a), lam(b)); } continue; }
+          if ((sa - sv) * (sb - sv) <= 0) { const u = (sv - sa) / (sb - sa), pt = [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u]; lo = Math.min(lo, lam(pt)); hi = Math.max(hi, lam(pt)); } }
+        return lo > hi ? [0, 1] : [Math.max(0, lo) / ww[i], Math.min(ww[i], hi) / ww[i]]; };
+      const M = 100, levels = [];
+      for (let k = 0; k <= M; k++) { const s0 = smin + (smax - smin) * k / M, d = Math.max(0, D * Math.min(1, Math.abs(s0 - sf) / L) - 0.15);
+        levels.push({ s: s0, th: Math.asin(Math.min(1, d / (w[0] + w[1]))), al: ps.map((q, i) => span(q, i, s0)) }); }
+      ag.push({ t, nv, a: hs.map(h => h.a), w: ww, keys: hs.map(h => h.key), ids: ch, levels });
+      continue;
+    }
+    for (let j = 0; j < N; j++) {
+      const lo = j === 0 ? -Infinity : smin + (smax - smin) * j / N, hi = j === N - 1 ? Infinity : smin + (smax - smin) * (j + 1) / N;
+      const ids = ch.map((_, i) => nid++), ok = ps.map((q, i) => clip(q.pts, t, lo, hi));
+      if (ok.some(q => q.length < 3)) continue;
+      const mid = (Math.max(lo, smin) + Math.min(hi, smax)) / 2, d = Math.max(0, D * Math.min(1, Math.abs(mid - sf) / L) - 0.15);   // P7/P8, P1'in iç yüzünün 0,15 mm altında: aynı düzlemde çakışıp çizgi (z-fighting) yapmasın
+      const th = Math.asin(Math.min(1, d / (w[0] + w[1]))) * 180 / Math.PI;
+      const ang = [[180 - th, 1], [180 - 2 * th, -1], [180 - th, 1]];
+      const cutEdges = pts => { const out = [];   // dilim kesim kenarları (lo / hi): kalınlıkta yan duvar çizilmez, dilimler tek parça görünür
+        for (let k = 0; k < pts.length; k++) { const a = pts[k], b = pts[(k + 1) % pts.length], sa = dot(a, t), sb = dot(b, t);
+          if ((lo > -Infinity && Math.abs(sa - lo) < 1e-4 && Math.abs(sb - lo) < 1e-4) || (hi < Infinity && Math.abs(sa - hi) < 1e-4 && Math.abs(sb - hi) < 1e-4)) out.push([a, b]); }
+        return out; };
+      ps.forEach((q, i) => newP.push({ id: ids[i], pts: ok[i], noWall: cutEdges(ok[i]), holes: [], c: [ok[i].reduce((a, v) => a + v[0], 0) / ok[i].length, ok[i].reduce((a, v) => a + v[1], 0) / ok[i].length] }));
+      hs.forEach((h, i) => {
+        const sa = dot(h.a, t), sb = dot(h.b, t), l0 = Math.max(lo, Math.min(sa, sb)), l1 = Math.min(hi, Math.max(sa, sb)); if (l1 - l0 < 1e-6) return;
+        const at = s0 => { const u = (s0 - sa) / (sb - sa); return [h.a[0] + (h.b[0] - h.a[0]) * u, h.a[1] + (h.b[1] - h.a[1]) * u]; };
+        const [pa, pb] = sa <= sb ? [at(l0), at(l1)] : [at(l1), at(l0)], key = `${h.key}#${j}`;
+        newH.push({ parent: i === 0 ? h.parent : ids[i - 1], child: ids[i], a: pa, b: pb, key, grp: ch[i] });
+        newS[key] = { angle: +ang[i][0].toFixed(2), dir: ang[i][1], step: (settings[h.key] || {}).step || 1 };
+      });
+    }
+  }
+  return { panels: [...panels.filter(q => !drop.has(q.id)), ...newP], hinges: [...hinges.filter(h => !drop.has(h.child)), ...newH], settings: newS, korukAg: ag.length ? ag : undefined };
+}
 function viewerData() {
   const mm = p => [p[0] * PT2MM, p[1] * PT2MM];
   const reach = S.panels.filter(p => p.depth >= 0);
@@ -2570,10 +3181,10 @@ function viewerData() {
     if (onCard([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2])) lines.slit.push([mm(a), mm(b)]);
   }
   return {
-    panels: reach.map(p => ({ id: p.id, pts: p.pts.map(mm), holes: p.holes.map(h => h.map(mm)), c: mm(p.c) })),
-    hinges: S.hinges.filter(h => h.tree).map(h => ({ parent: h.parent, child: h.child, a: mm(h.a), b: mm(h.b), key: h.key })),
-    base: S.baseId, settings: S.settings, lines, frame: S.frame, art: S.art, beyaz: S.beyaz === 'opak' ? (S.beyazMask || null) : null, lak: S.lakMask || null, gofre: S.gofreMask || null, artBack: S.artBack || null, arkaAyna: S.arkaAyna || 'x', home: S.autoOrient || null,
-    card: $('selCard').value, deboss: S.deboss === undefined ? 1 : S.deboss, gofreP: S.gofreP || null, shadow: S.shadow !== false, kraft: S.kraftImg && S.kraftImg.complete && S.kraftImg.naturalWidth ? S.kraftImg : null, gloss: S.gloss || 'parlak', kalin: S.kalin || 0, pilyaj: S.pilyaj === undefined ? 1 : S.pilyaj, orient: S.orient || null,
+    ...korukDilimle(reach.map(p => ({ id: p.id, pts: p.pts.map(mm), holes: p.holes.map(h => h.map(mm)), c: mm(p.c) })),
+      S.hinges.filter(h => h.tree).map(h => ({ parent: h.parent, child: h.child, a: mm(h.a), b: mm(h.b), key: h.key })), S.settings),
+    base: S.baseId, olcuPanel: (S.olcuPanel || []).slice(), lines, frame: S.frame, art: S.art, beyaz: (S.beyaz || 'opak') === 'opak' ? (S.beyazMask || null) : null, lak: S.lakMask || null, gofre: S.gofreMask || null, artBack: S.artBack || null, arkaAyna: S.arkaAyna || 'x', home: S.autoOrient || null,
+    card: $('selCard').value, deboss: S.deboss === undefined ? 1 : S.deboss, gofreP: S.gofreP || null, shadow: S.shadow !== false, slit: S.slit !== false, kraft: S.kraftImg && S.kraftImg.complete && S.kraftImg.naturalWidth ? S.kraftImg : null, gloss: S.gloss || 'parlak', kalin: S.kalin || 0, pilyaj: S.pilyaj === undefined ? 1 : S.pilyaj, orient: S.orient || null,
     foil: S.foil || null, foilColor: S.foil ? FOIL_COLORS[S.varak] || null : null, foilFlat: S.foilFlat,
   };
 }
@@ -2615,6 +3226,7 @@ function autoOrient() {
 
 function showInfo() {
   const s = viewer.closedSize();
+  updateSpec();
   $('info').textContent = s ? `${S.panels.filter(p => !p.scrap).length} panel · ${S.hinges.filter(h => h.tree).length} kat · kapalı ölçü ${s.x.toFixed(1)} × ${s.z.toFixed(1)} × ${s.y.toFixed(1)} mm` : '';
 }
 
@@ -2711,11 +3323,12 @@ function blankArt() {
 }
 function applyLayers() {
   if (!S.panels || !S.panels.length || !S.art) return;
+  if (S.soloArt) { viewer.setLayerData({ cardOverride: null, art: S.soloArt, artBack: null, beyaz: null, foil: null, gofre: null, lak: null }); return; }
   const L = S.layers || {}, on = k => L[k] !== false;
   // BEYAZ multiply'de görünmez: sadece BEYAZ açıkken (solo) zemin geçici gri olur, beyaz boya onun üstünde opak beyaz görünür
   const only = ['print', 'foil', 'gofre', 'lak'].every(k => !(k === 'print' || (k === 'foil' && S.foil) || (k === 'gofre' && S.gofreMask) || (k === 'lak' && S.lakMask)) || !on(k)) && on('beyaz') && !!S.beyazMask;
   viewer.setLayerData({ cardOverride: only ? '#6d6d6d' : null, art: on('print') ? S.art : blankArt(), artBack: on('print') ? (S.artBack || null) : null,
-    beyaz: on('beyaz') ? (S.beyaz === 'opak' || only ? (S.beyazMask || null) : null) : null,
+    beyaz: on('beyaz') ? ((S.beyaz || 'opak') === 'opak' || only ? (S.beyazMask || null) : null) : null,
     foil: on('foil') ? (S.foil || null) : null, gofre: on('gofre') ? (S.gofreMask || null) : null, lak: on('lak') ? (S.lakMask || null) : null });
 }
 function layersUi() {
@@ -2726,18 +3339,31 @@ function layersUi() {
   for (const [key, name] of defs) {
     const row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:3px 0';
     const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = S.layers[key] !== false;
-    cb.onchange = () => { S.layers[key] = cb.checked; applyLayers(); layersUi(); };
-    const lb = document.createElement('label'); lb.style.cssText = 'flex:1;cursor:pointer'; lb.textContent = name + (key === 'beyaz' && S.beyaz !== 'opak' ? ' · Multiply\'de görünmez, Sadece ile bak' : ''); lb.onclick = () => cb.click();
+    cb.onchange = () => { S.soloArt = null; S.soloKey = null; S.layers[key] = cb.checked; applyLayers(); layersUi(); updateSpec(); };
+    const lb = document.createElement('label'); lb.style.cssText = 'flex:1;cursor:pointer'; lb.textContent = name + (key === 'beyaz' && (S.beyaz || 'opak') !== 'opak' ? ' · Multiply\'de görünmez, Sadece ile bak' : ''); lb.onclick = () => cb.click();
     const solo = document.createElement('button'); solo.textContent = 'Sadece'; solo.style.cssText = 'padding:2px 8px;font-size:12px';
-    solo.onclick = () => { for (const [k] of defs) S.layers[k] = k === key; applyLayers(); layersUi(); };
+    solo.onclick = () => { S.soloArt = null; S.soloKey = null; for (const [k] of defs) S.layers[k] = k === key; applyLayers(); layersUi(); updateSpec(); };
     row.append(cb, lb, solo); box.appendChild(row);
   }
   if (defs.length > 1 && defs.some(([k]) => S.layers[k] === false)) {
     const all = document.createElement('button'); all.textContent = 'Tümünü göster'; all.style.cssText = 'margin-top:6px;padding:3px 10px';
-    all.onclick = () => { S.layers = {}; applyLayers(); layersUi(); }; box.appendChild(all);
+    all.onclick = () => { S.soloArt = null; S.soloKey = null; S.layers = {}; applyLayers(); layersUi(); updateSpec(); }; box.appendChild(all);
   }
 }
+// Renk ayrımı: paneller belli olunca, yalnız bıçağın içi (künye ve sayfa kenarındaki işaretler sayılmaz)
+function ayrimIste() {
+  const anahtar = `${S.sig}|${S.name}|${S.buf ? S.buf.byteLength : 0}|${S.panels.length}`;   // aynı bıçak başka dosyada da olabilir
+  if (!KUNYE_ACIK || !S.buf || !S.panels.length || S.ayrimIs === anahtar) return;
+  S.ayrimIs = anahtar; S.ayrim = null; S.ayrimDurum = 'bekliyor';
+  const benim = anahtar, alan = S.panels.filter(p => !p.scrap && p.depth >= 0).map(p => p.pts.map(q => [+(q[0] * PT2MM).toFixed(2), +(q[1] * PT2MM).toFixed(2)]));
+  fetch('ayrim', { method: 'POST', body: S.buf.slice(0), headers: { 'X-Alan': encodeURIComponent(JSON.stringify(alan)) } }).then(r => r.json()).then(j => {
+    if (benim !== S.ayrimIs) return;
+    S.ayrim = j && j.ayrimlar ? j : null; S.ayrimDurum = S.ayrim ? 'tamam' : j && j.kapali ? 'kapali' : 'yok';
+    if (!S.ayrim && !(j && j.kapali)) console.warn('Ayrım okunamadı', j && j.hata); coCache.key = null; updateSpec(); })
+    .catch(() => { if (benim === S.ayrimIs) { S.ayrimDurum = 'yok'; updateSpec(); } });
+}
 function refreshAll() {
+  setTimeout(ayrimIste, 0);
   draw2D(); drawGroups(); drawHinges();
   viewer.load(viewerData());
   layersUi(); if (Object.values(S.layers || {}).some(v => v === false)) applyLayers();   // yeniden yüklemede gizli katmanlar korunur
@@ -2747,7 +3373,7 @@ function refreshAll() {
     if (o) { S.orient = o; S.autoOrient = o; viewer.setOrient(o, true); }
   }
   $('rngT').value = 1000; setFlatBtn(); showInfo();
-  for (const b of ['btnPin', 'btnSave', 'btnPng', 'btnVideo', 'btnPlay', 'rngT', 'btnFlat', 'btnDie', 'btnExport']) $(b).disabled = !S.panels.length;
+  for (const b of ['btnPin', 'btnSave', 'btnPng', 'btnVideo', 'btnPlay', 'rngT', 'btnFlat', 'btnDie', 'btnOlcu', 'btnSpec', 'btnSetup', 'btnExport']) $(b).disabled = !S.panels.length;
 }
 
 // keep: güncellemede (dosya yeniden okunurken) korunacak o anki ayarlar
@@ -2765,6 +3391,8 @@ async function loadBuffer(buf, name, keep = null, sayfa = 1) {
     S.buf = buf.slice(0);
     let spots = new Map();
     try { spots = await spotColors(buf); } catch (e) { console.warn('Spot adları okunamadı', e); }
+    // renkler: sunucu PDF'i Ghostscript ile mürekkeplerine ayırır (tahmin değil); yüklemeyi bekletmez, gelince kart güncellenir
+    S.ayrim = null; S.ayrimDurum = 'bekliyor'; S.ayrimIs = null;
     const r = await parsePdf(buf, sayfa);
     if (my !== loadId) return;   // daha yeni bir dosya açıldı
     const { groups, roles, why } = buildGroups(r.paths, spots);
@@ -2931,6 +3559,16 @@ $('btnFlat').onclick = () => {
   setFlatBtn();
 };
 $('btnDie').onclick = () => setDie(!dieOn());
+// ölçü varsayılan kapalı (operatör, 6 Eki 2026: açması daha basit)
+$('btnOlcu').onclick = () => { S.olcuOn = !S.olcuOn; viewer.setOlcu(S.olcuOn); $('btnOlcu').classList.toggle('on', S.olcuOn); };
+$('btnSpec').onclick = () => { S.specOn = S.specOn === false; updateSpec(); };
+for (const id of ['selCard', 'selGloss', 'selKalin']) $(id).addEventListener('change', () => setTimeout(updateSpec, 50));
+$('btnSetup').onclick = () => {
+  if (S.kbPick) { S.kbPick = null; drawKoruk(); status('Kutu ayarı kapandı.'); return; }
+  if (viewer.mode !== 'flat') $('btnFlat').click();   // açık hâl: bütün paneller görünür, tıklamak kolay
+  $('secHinges').open = true; S.kbPick = { src: null }; drawKoruk();
+  status("Kutu ayarı: yapışan paneli tıkla (örn. P7), sonra yapışacağı paneli (örn. P1). Esc çıkar.");
+};
 // karton değişince yüzey varsayılanı: kraft mat, diğerleri parlak. Operatör Ön yüz'ü elle seçtiyse ona dokunulmaz (son söz operatörün).
 const glossDefault = card => card === '#c69c6d' ? 'mat' : 'parlak';
 function applyGlossDefault(card) {
@@ -2940,11 +3578,15 @@ function applyGlossDefault(card) {
 $('selCard').onchange = async () => {
   const c = $('selCard').value; applyGlossDefault(c);
   // metalize kâğıtta BEYAZ boya = beyaz alt baskı (opak); diğer kartonda multiply. Operatör BEYAZ'ı elle seçtiyse dokunulmaz.
-  if (S.hasBeyaz && !S.beyazManual) { const want = c === '#9a9a96' ? 'opak' : 'multiply'; if ((S.beyaz || 'multiply') !== want) { S.beyaz = want; $('selBeyaz').value = want; await rebuildGeometry(); } }
+  if (S.hasBeyaz && !S.beyazManual) { const want = 'opak'; /* operatör (6 Eki 2026): BEYAZ her kartonda varsayılan opak */ if ((S.beyaz || 'opak') !== want) { S.beyaz = want; $('selBeyaz').value = want; await rebuildGeometry(); } }
   viewer.setCard(c);
 };
 $('selShadow').onchange = () => { S.shadow = $('selShadow').value === '1'; viewer.setShadow(S.shadow); };
 $('selGloss').onchange = () => { S.glossManual = true; S.gloss = $('selGloss').value; viewer.setGloss(S.gloss); };
+{ const w = $('svgwrap'), b = $('btnBig'), set = on => { w.classList.toggle('big', on); b.textContent = on ? '✕ Kapat' : '⤢ Büyüt'; };
+  b.onclick = () => set(!w.classList.contains('big'));
+  addEventListener('keydown', e => { if (e.key === 'Escape' && w.classList.contains('big')) set(false); }); }
+$('selSlit').onchange = () => { S.slit = $('selSlit').value === '1'; viewer.setSlit(S.slit); };
 $('selPilyaj').onchange = () => { S.pilyaj = +$('selPilyaj').value; viewer.setPilyaj(S.pilyaj); };
 $('selKalin').onchange = () => { S.kalin = +$('selKalin').value; viewer.setKalinlik(S.kalin); };
 $('selGofre').onchange = () => { S.gofre = $('selGofre').value; rebuildGeometry(); };
@@ -3205,7 +3847,7 @@ async function kirmaUygula(T = kirmaCoz(S.kirma)) {
 const kirmaGoster = () => { const T = kirmaCoz(S.kirma); if (T.hata) return T.hata;
   const n = T.P2.length, cx = T.P2.reduce((s, p) => s + p[0], 0) / n, cy = T.P2.reduce((s, p) => s + p[1], 0) / n;
   localStorage.setItem('dieline3d:kirmaCozum', JSON.stringify({ ...T, P2: T.P2.map(p => [p[0] - cx, p[1] - cy]), katlar: [] })); return T.rapor; };
-if (window.dbg) Object.assign(window.dbg, { kirmaUygula, kirmaCoz, kirmaGoster, loadUrl, buildTopology });
+if (window.dbg) Object.assign(window.dbg, { viewer, kirmaUygula, kirmaCoz, kirmaGoster, loadUrl, buildTopology });
 
 // kaydet / yükle
 const download = (blob, name) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); };
@@ -3218,6 +3860,8 @@ $('btnSave').onclick = () => {
 function applySettings(d) {
   if (d.roller) Object.assign(S.roles, d.roller);
   S.settings = d.katlar || {};
+  S.koruk = d.koruk || null; S.korukSig = S.sig;
+  S.olcuPanel = d.olcuPanel || []; S.olcuSig = S.sig;
   S.baseId = d.taban ?? null;
   S.baseManual = d.taban !== undefined && d.taban !== null && d.tabanElle !== false;
   S.orient = keepOnBase(d.durus || null);
@@ -3228,15 +3872,17 @@ function applySettings(d) {
   if (d.gofreP) { S.gofreP = d.gofreP; gofrePUi(); }
   if (d.lak) { S.lak = d.lak; $('selLak').value = d.lak; }
   if (d.beyaz) { S.beyaz = d.beyaz; S.beyazManual = true; $('selBeyaz').value = d.beyaz; }
+  else if (d.karton && !S.beyazManual) { S.beyaz = 'opak'; $('selBeyaz').value = S.beyaz; }   // kayıtlı ayarda BEYAZ yoksa kartona göre (metalize → opak), kartonu elle değiştirmekle aynı
   if (d.deboss != null) { S.deboss = d.deboss; $('selDeboss').value = String(d.deboss); }
   if (d.golge === 0) { S.shadow = false; $('selShadow').value = '0'; }
   if (d.gloss) { S.gloss = d.gloss; S.glossManual = true; $('selGloss').value = d.gloss; }
   else if (d.karton) applyGlossDefault(d.karton);
+  if (d.slit === 0) { S.slit = false; $('selSlit').value = '0'; }
   if (d.pilyaj != null) { S.pilyaj = d.pilyaj; $('selPilyaj').value = String(d.pilyaj); }
   if (d.kalin != null) { S.kalin = d.kalin; $('selKalin').value = String(d.kalin); }
   if (d.varak) S.varak = d.varak;   // renderArt maske çıkınca seçim kutusuna yazar
 }
-const settingsData = () => ({ dosya: S.name, taban: S.baseManual ? S.baseId : null, roller: S.roles, katlar: S.settings, durus: S.orient || null, karton: $('selCard').value, varak: S.foil ? S.varak : undefined, arkaAyna: S.arkaAyna || undefined, kalin: S.kalin || undefined, pilyaj: S.pilyaj, gloss: S.glossManual ? S.gloss : undefined, golge: S.shadow === false ? 0 : undefined, deboss: S.deboss, beyaz: S.beyazManual ? S.beyaz : undefined, lak: S.lak, gofre: S.gofre, gofreP: S.gofreP || undefined });
+const settingsData = () => ({ dosya: S.name, taban: S.baseManual ? S.baseId : null, roller: S.roles, katlar: S.settings, durus: S.orient || null, karton: $('selCard').value, varak: S.foil ? S.varak : undefined, arkaAyna: S.arkaAyna || undefined, kalin: S.kalin || undefined, pilyaj: S.pilyaj, gloss: S.glossManual ? S.gloss : undefined, golge: S.shadow === false ? 0 : undefined, slit: S.slit === false ? 0 : undefined, deboss: S.deboss, beyaz: S.beyazManual ? S.beyaz : undefined, lak: S.lak, gofre: S.gofre, gofreP: S.gofreP || undefined, koruk: S.koruk || undefined, olcuPanel: (S.olcuPanel || []).length ? S.olcuPanel : undefined });
 const settingsJson = () => { const d = settingsData(); delete d.dosya; return JSON.stringify(d); };
 
 // ── sabit ayar: sunucu ayarlar/<imza>.json olarak saklar ──
@@ -3360,6 +4006,142 @@ function kraftUrl() {
   const c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight; c.getContext('2d').drawImage(im, 0, 0);
   return c.toDataURL('image/jpeg', 0.85);
 }
+// ── Özellikler kartı (müşteri sunumu): renkler, efektler, kâğıt, ölçü. Editörde 3B köşesinde, müşteri dosyasında aynı kart ──
+// operatör (6 Eki 2026): künye fikri rafa kalktı (otomatik renkler güvenilir çıkmadı). Kart, uçan etiketler ve renk ayrımı kapalı; açmak için true.
+const KUNYE_ACIK = false;
+const BOS_LISTE = [];
+const SPEC_CSS = `.spec{position:absolute;top:14px;right:14px;z-index:4;width:258px;max-width:calc(100% - 28px);max-height:calc(100% - 28px);overflow:auto;background:rgba(255,255,255,.8);backdrop-filter:blur(14px) saturate(1.4);-webkit-backdrop-filter:blur(14px) saturate(1.4);border:1px solid rgba(255,255,255,.95);border-radius:16px;box-shadow:0 12px 34px rgba(0,0,0,.16);padding:14px 16px 12px;font:13px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#1d1d1b;transition:opacity .3s,transform .3s;user-select:none}
+.spec.kapali{opacity:0;transform:translateY(-8px);pointer-events:none}
+.spec .hd{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:2px}
+.spec h3{margin:0;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:#8a877f;font-weight:600}
+.spec .big{font-size:22px;font-weight:650;letter-spacing:-.02em;margin:2px 0 0}
+.spec .big small{font-size:12px;font-weight:500;color:#8a877f;letter-spacing:0;margin-left:4px}
+.spec .sec{margin-top:11px;padding-top:10px;border-top:1px solid rgba(0,0,0,.06)}
+.spec .lbl{font-size:10.5px;color:#8a877f;margin-bottom:6px;letter-spacing:.08em;text-transform:uppercase}
+.spec .chips{display:flex;flex-wrap:wrap;gap:6px}
+.spec .chip{display:flex;align-items:center;gap:6px;background:#fff;border-radius:999px;padding:3px 10px 3px 3px;box-shadow:0 1px 3px rgba(0,0,0,.09);font-size:12px;white-space:nowrap}
+.spec .dot{width:18px;height:18px;border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.14),0 1px 2px rgba(0,0,0,.15)}
+.spec .row{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:2px 0}
+.spec .row span{color:#6b6a64}
+.spec .row b{font-weight:600;text-align:right}
+.spec .chip[data-solo]{cursor:pointer;transition:box-shadow .15s,transform .15s}
+.spec .chip[data-solo]:hover{transform:translateY(-1px);box-shadow:0 3px 8px rgba(0,0,0,.16)}
+.spec .chip.on{box-shadow:0 0 0 2px #1d1d1b}
+.spec .ipucu{font-size:10.5px;color:#8a877f;margin-top:8px}`;
+const SPEC_TXT = {
+  tr: { baslik: 'Özellikler', renk: 'renk', renkler: 'Baskı renkleri', efekt: 'Efektler', kagit: 'Kâğıt', olcu: 'Ölçü', tur: 'Tür', kapali: 'Kapalı', acinim: 'Açınım', yuzey: 'Yüzey', kalinlik: 'Kalınlık',
+    lak: 'UV lak', yaldiz: 'Yaldız', gofre: 'Gofre', beyaz: 'Beyaz alt baskı', C: 'Cyan', M: 'Magenta', Y: 'Yellow', K: 'Black', yok: 'yok' },
+  en: { baslik: 'Specifications', renk: 'colours', renkler: 'Print colours', efekt: 'Finishes', kagit: 'Board', olcu: 'Size', tur: 'Type', kapali: 'Closed', acinim: 'Flat', yuzey: 'Surface', kalinlik: 'Thickness',
+    lak: 'UV varnish', yaldiz: 'Hot foil', gofre: 'Embossing', beyaz: 'White underprint', C: 'Cyan', M: 'Magenta', Y: 'Yellow', K: 'Black', yok: 'none' },
+};
+function specInfo() {
+  const dieHex = new Set((S.groups || []).filter(g => S.roles[g.key] !== 'yok').map(g => g.color));
+  const spots = [...(S.spots || new Map())].filter(([h]) => !dieHex.has(h));
+  const dekor = n => BEYAZ_RE.test(n) || LAK_RE.test(n) || GOFRE_RE.test(n) || FOIL_RE.test(n) || PROVA_RE.test(n);
+  const baski = []; for (const [h, ns] of spots) for (const n of ns) if (!dekor(n) && !baski.some(b => b.ad === n)) baski.push({ ad: n, hex: h });
+  // ayrım geldiyse gerçek mürekkepler: kapsaması 0 olan spot ve CMYK kanalı listeye girmez
+  const ay = S.ayrim && new Map(S.ayrim.ayrimlar.map(a => [a.ad, a.kapsama]));
+  const kanal = { C: 'Cyan', M: 'Magenta', Y: 'Yellow', K: 'Black' };
+  const surec = ay ? Object.keys(kanal).filter(c => (ay.get(kanal[c]) || 0) > 0) : [];
+  const baskiAy = ay ? baski.filter(b => (ay.get(b.ad) || 0) > 0).map(b => ({ ...b, oran: ay.get(b.ad) })) : baski;
+  const ef = [], has = re => spots.some(([, ns]) => ns.some(n => re.test(n)));
+  if (S.foil || has(FOIL_RE)) ef.push({ k: 'yaldiz', tur: S.varak || 'altin' });
+  if (S.hasLak || has(LAK_RE)) ef.push({ k: 'lak' });
+  if (S.hasGofre || has(GOFRE_RE)) ef.push({ k: 'gofre' });
+  if (S.hasBeyaz || has(BEYAZ_RE)) ef.push({ k: 'beyaz' });
+  const sz = viewer.closedSize(), bb = S.bbox, txt = id => { const e = $(id); return e && e.selectedOptions[0] ? e.selectedOptions[0].textContent : ''; };
+  return { surec, oranlar: ay ? Object.fromEntries(Object.entries(kanal).map(([c, n]) => [c, ay.get(n) || 0])) : {}, ayrimDurum: S.ayrimDurum, baski: baskiAy, ef, kagit: ({ Beyaz: 'Beyaz karton', Kraft: 'Kraft', 'Metalize (gri)': 'Metalize' })[txt('selCard')] || txt('selCard'), yuzey: txt('selGloss'), kalin: S.kalin || 0,
+    kapali: sz ? [sz.x, sz.z, sz.y].map(v => Math.round(v)) : null, acinim: bb ? [(bb[2] - bb[0]) * PT2MM, (bb[3] - bb[1]) * PT2MM].map(v => Math.round(v)) : null };
+}
+function specHtml(I, lang) {
+  const t = SPEC_TXT[lang] || SPEC_TXT.tr, e = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const CMYK = { C: '#00a3e0', M: '#e4007c', Y: '#ffe600', K: '#1d1d1b' };
+  const FOIL = { altin: 'linear-gradient(135deg,#7a5a14,#f6dc7d 45%,#a9802a 70%,#f3d77a)', gumus: 'linear-gradient(135deg,#8d8f96,#f7f7fa 45%,#a9abb2 70%,#eceef3)', bakir: 'linear-gradient(135deg,#7a3d1c,#f2b48d 45%,#a65a33 70%,#f0a078)' };
+  const EFD = { lak: 'radial-gradient(circle at 32% 28%,#fff 0 18%,#cfe6f7 40%,#8fb6d6 100%)', gofre: 'radial-gradient(circle at 35% 30%,#fff,#e6e3dc 55%,#b9b5ab)', beyaz: '#fff' };
+  const chip = (bg, ad, so, oran) => `<span class="chip${so && so === I.aktif ? ' on' : ''}"${so && I.tik ? ` data-solo="${e(so)}"` : ''}${oran != null ? ` title="Kapsama %${String(oran).replace('.', ',')}"` : ''}><span class="dot" style="background:${bg}"></span>${e(ad)}</span>`;
+  const n = I.surec.length + I.baski.length;
+  const renkler = I.surec.map(c => chip(CMYK[c], t[c], 'cmyk:' + c, (I.oranlar || {})[c])).concat(I.baski.map(b => chip(b.hex, b.ad, 'spot:' + b.ad, b.oran))).join('');
+  const efekt = I.ef.map(x => chip(x.k === 'yaldiz' ? FOIL[x.tur] || FOIL.altin : EFD[x.k], t[x.k], 'ef:' + x.k)).join('');
+  const satir = (a, b) => b ? `<div class="row"><span>${e(a)}</span><b>${e(b)}</b></div>` : '';
+  return `<div class="hd"><h3>${e(t.baslik)}</h3></div>
+<div class="big">${n}<small>${e(t.renk)}${I.surec.length && I.baski.length ? ` · ${I.surec.length} + ${I.baski.length}` : ''}</small></div>
+${n ? `<div class="sec"><div class="lbl">${e(t.renkler)}</div><div class="chips">${renkler}</div></div>` : I.tik && I.ayrimDurum === 'bekliyor' ? `<div class="sec"><div class="lbl">${e(t.renkler)}</div><div class="ipucu" style="margin:0">Ayrım okunuyor…</div></div>` : ''}${I.tik && I.ayrimDurum === 'yok' ? '<div class="ipucu">CMYK okunamadı (sunucuda Ghostscript gerekli); yalnız spot renkler.</div>' : ''}
+${I.ef.length ? `<div class="sec"><div class="lbl">${e(t.efekt)}</div><div class="chips">${efekt}</div></div>` : ''}
+<div class="sec"><div class="lbl">${e(t.kagit)}</div>${satir(t.tur, I.kagit)}${satir(t.yuzey, I.yuzey)}${I.kalin ? satir(t.kalinlik, String(I.kalin).replace('.', ',') + ' mm') : ''}</div>
+<div class="sec"><div class="lbl">${e(t.olcu)}</div>${I.kapali ? satir(t.kapali, I.kapali.join(' × ') + ' mm') : ''}${I.acinim ? satir(t.acinim, I.acinim.join(' × ') + ' mm') : ''}</div>${I.tik ? `<div class="ipucu">${I.aktif ? 'Tekrar basınca tüm renkler döner.' : 'Bir renge bas: 3B\'de sadece o görünür.'}</div>` : ''}`;
+}
+// uçan etiketlerin yerleri: her özelliğin maskesinden ya da baskıdaki renginden örnek noktalar (mm, açınım koordinatı)
+let coCache = { key: null, list: [] };
+function calloutList() {
+  if (!S.art || !S.frame) return [];
+  const I = specInfo(), F = S.frame, t = SPEC_TXT.tr;
+  const key = [S.art, S.lakMask, S.foil, S.gofreMask, I.kagit, I.yuzey, I.baski.map(b => b.ad).join()];
+  if (coCache.key && key.every((k, i) => k === coCache.key[i])) return coCache.list;
+  const kucuk = cv => { const sc = 384 / Math.max(cv.width, cv.height), c = document.createElement('canvas'); c.width = Math.max(1, Math.round(cv.width * sc)); c.height = Math.max(1, Math.round(cv.height * sc));
+    const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(cv, 0, 0, c.width, c.height); return { w: c.width, h: c.height, d: x.getImageData(0, 0, c.width, c.height).data }; };
+  const ornek = (im, test, max = 24) => { const pts = [];
+    for (let y = 0; y < im.h; y += 2) for (let x = 0; x < im.w; x += 2) { const i = (y * im.w + x) * 4; if (test(im.d[i], im.d[i + 1], im.d[i + 2])) pts.push([F.x0 + (x + 0.5) / im.w * F.bw, F.y0 + (y + 0.5) / im.h * F.bh]); }
+    if (pts.length < 4) return null; const st = Math.max(1, Math.floor(pts.length / max)); return pts.filter((_, i) => i % st === 0); };
+  const out = [], mask = cv => cv ? ornek(kucuk(cv), r => r > 140) : null;
+  for (const [cv, ad] of [[S.foil, t.yaldiz], [S.lakMask, t.lak], [S.gofreMask, t.gofre]]) { const p = mask(cv); if (p) out.push({ label: ad, pts: p }); }
+  const art = kucuk(S.art);
+  for (const b of I.baski.slice(0, Math.max(0, 4 - out.length))) {
+    const [R, G, B] = [1, 3, 5].map(i => parseInt(b.hex.substr(i, 2), 16));
+    const p = ornek(art, (r, g, bb) => Math.abs(r - R) + Math.abs(g - G) + Math.abs(bb - B) < 36); if (p) out.push({ label: b.ad, color: b.hex, pts: p });
+  }
+  coCache = { key, list: out };
+  return out;
+}
+async function soloSec(key) {
+  const sifirla = () => { S.soloKey = null; S.soloArt = null; S.layers = {}; applyLayers(); layersUi(); updateSpec(); };
+  if (S.soloKey === key) { sifirla(); status('Tüm renkler gösteriliyor.'); return; }
+  const i = key.indexOf(':'), tip = key.slice(0, i), ad = key.slice(i + 1);
+  if (tip === 'ef') {
+    const k = { yaldiz: 'foil', lak: 'lak', gofre: 'gofre', beyaz: 'beyaz' }[ad];
+    S.soloArt = null; S.soloKey = key; S.layers = {}; for (const [kk] of LAYER_DEFS) S.layers[kk] = kk === k;
+    applyLayers(); layersUi(); updateSpec(); status(`Sadece ${SPEC_TXT.tr[ad]} gösteriliyor. Tekrar basınca hepsi döner.`); return;
+  }
+  // operatörün sürümü (OZEL): gerçek kalıp görüntüsü sunucudan (Ghostscript), delikler ve tonlar birebir; olmazsa tarayıcıdaki yaklaşık yol
+  if (S.ayrimDurum === 'tamam' && S.buf && S.frame) {
+    const gsAd = tip === 'cmyk' ? { C: 'Cyan', M: 'Magenta', Y: 'Yellow', K: 'Black' }[ad] : ad;
+    S.soloKey = key; updateSpec(); status('Ayrım hazırlanıyor…');
+    try {
+      const r = await fetch(`kalip?ad=${encodeURIComponent(gsAd)}&sayfa=${S.onArka ? 1 : (S.sayfa || 1)}`, { method: 'POST', body: S.buf.slice(0) });
+      if (r.ok && (r.headers.get('content-type') || '').startsWith('image/')) {
+        const bm = await createImageBitmap(await r.blob()); if (S.soloKey !== key) return;
+        const spotHex = (([...(S.spots || new Map())].find(([, n]) => n.includes(ad)) || [])[0]) || '#808080';
+        const R = tip === 'cmyk' ? { C: [0, 163, 224], M: [228, 0, 124], Y: [255, 230, 0], K: [29, 29, 27] }[ad] : [1, 3, 5].map(i => parseInt(spotHex.substr(i, 2), 16));
+        const F = S.frame, k = 150 / 25.4, c = document.createElement('canvas'); c.width = S.art.width; c.height = S.art.height;
+        const x = c.getContext('2d', { willReadFrequently: true }); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+        x.drawImage(bm, F.x0 * k, F.y0 * k, F.bw * k, F.bh * k, 0, 0, c.width, c.height);   // kalıp sayfanın tamamı (CropBox), doku dieline çerçevesi
+        const id = x.getImageData(0, 0, c.width, c.height), d = id.data;
+        for (let i = 0; i < d.length; i += 4) { const m = (255 - d[i]) / 255; d[i] = 255 + (R[0] - 255) * m; d[i + 1] = 255 + (R[1] - 255) * m; d[i + 2] = 255 + (R[2] - 255) * m; d[i + 3] = 255; }
+        x.putImageData(id, 0, 0);
+        S.soloArt = c; S.layers = {}; applyLayers(); layersUi(); updateSpec();
+        status(`Sadece ${tip === 'cmyk' ? SPEC_TXT.tr[ad] : ad} gösteriliyor (gerçek kalıp). Tekrar basınca hepsi döner.`);
+        return;
+      }
+    } catch (e) { console.warn('Kalıp alınamadı', e); }
+  }
+  if (!S.soloRender) return;
+  S.soloKey = key; updateSpec(); status('Ayrım hazırlanıyor…');
+  const cv = await S.soloRender(tip, ad); if (S.soloKey !== key) return;
+  if (!cv) { S.soloKey = null; updateSpec(); status('Bu renk için ayrım çizilemedi.', true); return; }
+  S.soloArt = cv; S.layers = {}; applyLayers(); layersUi(); updateSpec();
+  status(`Sadece ${tip === 'cmyk' ? SPEC_TXT.tr[ad] + ' (yaklaşık kanal)' : ad} gösteriliyor. Tekrar basınca hepsi döner.`);
+}
+function updateSpec() {
+  let el = $('specCard');
+  if (!el) { const st = document.createElement('style'); st.textContent = SPEC_CSS; document.head.appendChild(st);
+    el = document.createElement('div'); el.id = 'specCard'; el.className = 'spec'; $('view').appendChild(el); }
+  const on = KUNYE_ACIK && S.panels.length && S.specOn !== false && !(S.canArt && (S.groups || []).some(g => S.roles[g.key] === 'silindir'));
+  el.classList.toggle('kapali', !on); $('btnSpec')?.classList.toggle('on', S.specOn !== false);
+  if (on) { el.innerHTML = specHtml({ ...specInfo(), tik: true, aktif: S.soloKey }, 'tr');
+    for (const c of el.querySelectorAll('.chip[data-solo]')) c.onclick = () => soloSec(c.dataset.solo); }
+  const cl = on ? calloutList() : BOS_LISTE;   // sabit boş liste: her güncellemede yeni [] ölçü katmanını sıfırlıyordu
+  if (cl !== S.coSon) { S.coSon = cl; viewer.setCallouts(cl); }
+}
+
 async function buildCustomerHtml(title, lang) {
   const [threeJs, orbitJs] = await Promise.all([THREE_URL, ORBIT_URL].map(async u => {
     const r = await fetch(u); if (!r.ok) throw new Error(`${u} indirilemedi`); return blobToDataURL(new Blob([await r.text()], { type: 'text/javascript' }));
@@ -3380,9 +4162,11 @@ async function buildCustomerHtml(title, lang) {
     const d = viewerData();
     const size = viewer.closedSize();
     dims = size ? `${Math.round(size.x)} × ${Math.round(size.z)} × ${Math.round(size.y)} mm` : '';
-    data = { ...d, art: undefined, home: undefined, foil: undefined, gofre: undefined, gofreUrl: S.gofreMask ? S.gofreMask.toDataURL('image/png') : null, lak: undefined, lakUrl: S.lakMask ? S.lakMask.toDataURL('image/png') : null, beyaz: undefined, beyazUrl: S.beyaz === 'opak' && S.beyazMask ? S.beyazMask.toDataURL('image/png') : null, kraft: undefined, kraftUrl: kraftUrl(), artBack: undefined, artBackUrl: S.artBack ? S.artBack.toDataURL('image/jpeg', 0.9) : null, artUrl: S.art.toDataURL('image/jpeg', 0.9),
+    data = { ...d, art: undefined, home: undefined, foil: undefined, gofre: undefined, gofreUrl: S.gofreMask ? S.gofreMask.toDataURL('image/png') : null, lak: undefined, lakUrl: S.lakMask ? S.lakMask.toDataURL('image/png') : null, beyaz: undefined, beyazUrl: (S.beyaz || 'opak') === 'opak' && S.beyazMask ? S.beyazMask.toDataURL('image/png') : null, kraft: undefined, kraftUrl: kraftUrl(), artBack: undefined, artBackUrl: S.artBack ? S.artBack.toDataURL('image/jpeg', 0.9) : null, artUrl: S.art.toDataURL('image/jpeg', 0.9),
       foilUrl: S.foil ? S.foil.toDataURL('image/jpeg', 0.85) : null };   // maske siyah-beyaz: JPEG PNG'nin ~1/6'sı
   }
+  if (KUNYE_ACIK && !silindir && S.specOn !== false) data.callouts = calloutList();
+  if (!silindir && S.olcuOn) data.olcu = true;
   const json = JSON.stringify(data).replace(/</g, '\\u003c');
   const T = TEXTS[lang];
   const S_ = '<' + '/script>';
@@ -3408,17 +4192,20 @@ nav button{font:inherit;font-size:16px;padding:10px 18px;border-radius:10px;bord
 nav button:hover{border-color:#6b6a64}
 nav button.on{background:#1d1d1b;color:#fff;border-color:#1d1d1b}
 #err{display:none;padding:40px;text-align:center}
+${silindir ? '' : SPEC_CSS}
 </style>
 <script type="importmap">{"imports":{"three":"${threeJs}","three/addons/controls/OrbitControls.js":"${orbitJs}"}}${S_}
 </head>
 <body>
 <header><h1>${escHtml(title)}</h1><span>${escHtml(dims)}</span></header>
-<div id="view"><div id="hint">${escHtml(T.hint)}</div></div>
+<div id="view"><div id="hint">${escHtml(T.hint)}</div>${silindir || !KUNYE_ACIK || S.specOn === false ? '' : `<div class="spec" id="spec">${specHtml(specInfo(), lang)}</div>`}</div>
 <div id="err">${escHtml(T.err)}</div>
 <nav>
   <button id="bPlay">${escHtml(T.play)}</button>
   <button id="bFlat">${escHtml(T.flat)}</button>
   <button id="bDie">${escHtml(T.die)}</button>
+  ${silindir || !S.olcuOn ? '' : `<button class="on" onclick="document.body.classList.toggle('noolcu');this.classList.toggle('on')">${lang === 'en' ? 'Dimensions' : 'Ölçü'}</button>`}
+  ${silindir || !KUNYE_ACIK || S.specOn === false ? '' : `<button class="on" onclick="document.getElementById('spec').classList.toggle('kapali');document.body.classList.toggle('nocall');this.classList.toggle('on')">${lang === 'en' ? 'Specs' : 'Özellikler'}</button>`}
 </nav>
 
 <script type="application/json" id="data">${json}${S_}
@@ -3435,6 +4222,8 @@ const start = () => {
   try { v = createViewer(THREE, OrbitControls, $('view'), { labels: T, onTurn: () => flatBtn() }); } catch (e) { $('view').style.display = 'none'; $('err').style.display = 'block'; return; }
   data.art = img;
   v.load(data);
+  if (data.callouts) v.setCallouts(data.callouts);
+  if (data.olcu) v.setOlcu(true);
   const hide = () => { $('hint').style.opacity = 0; };
   $('view').addEventListener('dblclick', hide, { once: true });
   setTimeout(hide, 9000);
