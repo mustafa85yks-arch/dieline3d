@@ -102,7 +102,7 @@ _KALIP = {}   # özet -> (geçici klasör), son 3 iş: her renge basışta Ghost
 
 
 def kalip_png(veri, ad, sayfa, dpi=150):
-    """Tek ayrımın (örn. bir spot, Cyan) gri kalıp görüntüsü, PNG. 255 = mürekkep yok. CropBox'a göre (pdf.js ile aynı)."""
+    """Tek ayrımın (örn. OFSET, Cyan) gri kalıp görüntüsü, PNG. 255 = mürekkep yok. CropBox'a göre (pdf.js ile aynı)."""
     gs = shutil.which("gs") or next((p for p in ("/opt/homebrew/bin/gs", "/usr/local/bin/gs") if os.path.exists(p)), None)
     if not gs:
         return None
@@ -187,7 +187,7 @@ class Isleyici(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         yol, _ = self._sorgu()
-        if yol == "/kalip":   # gövde: PDF baytları; ?ad=Cyan&sayfa=1 -> o ayrımın gri PNG'si
+        if yol == "/kalip":   # gövde: PDF baytları; ?ad=OFSET&sayfa=1 -> o ayrımın gri PNG'si
             veri = self.rfile.read(int(self.headers.get("Content-Length", 0)))
             q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(self.path).query))
             if not os.path.exists(os.path.join(KOK, "OZEL")):

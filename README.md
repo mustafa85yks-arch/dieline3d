@@ -19,7 +19,7 @@ bulamazsa (Spotlight'ın aramadığı bir klasör) bu iki buton kapalı kalır.
 
 ## Ön / Arka baskı
 
-**2 sayfalı PDF/AI'de sayfa 1 = ön yüz, sayfa 2 = arka yüz** (bizim işleyişte hep böyle). Sayfa 2 aynı bıçağın üstüne, karton içine (arka yüze) kaplanır:
+**2 sayfalı PDF/AI'de sayfa 1 = ön yüz, sayfa 2 = arka yüz** (matbaada hep böyle). Sayfa 2 aynı bıçağın üstüne, karton içine (arka yüze) kaplanır:
 kutuyu açınca ya da alttan bakınca iç baskı görünür. 3D'nin üstündeki **Ön / Arka** düğmesi açıktır; **Page 1 / Page 2** sayfaları tek tek gösterir.
 **↔ Arka aynası** arka baskının iç yüze nasıl oturacağını seçer: yatay (kitap gibi çevrilen sayfa, varsayılan) · dikey · yok. Ayarları sabitle ile saklanır.
 3 ve daha çok sayfalı dosyada sayfalar ayrı sekmedir (ön/arka sayılmaz).
@@ -57,12 +57,12 @@ Yaldız basılan yer hafif içe göçer: folyo maskesi bulanıklaştırılıp ka
 ## GOFRE spotu (emboss / kabartma)
 
 Adında `gofre / emboss / kabartma / blind` geçen spot kabartma sayılır: spotun yer tutucu rengi (örn. pembe) 3D'de görünmez, o alan hafif **yükselir**, kenarı ışıkta belirir (kabartma haritası, kenarda 0,3 mm yumuşak eğim; gerçek yükseklik değil, ışık-gölge). Pilyaj ve yaldız izi gibi ışıkla görünür. Kenar yumuşak ve geniş (0,55 mm, yastık gibi, gofre videosuna göre). **Gofre ayarı** kaydırıcıları (dosyada GOFRE varsa Görünüm'de çıkar): **Kenar** (0,05–1,2 mm, kenar yumuşaklığı), **Köşelilik** (0 yuvarlak/yastık, 1 köşeli: düz tepe ve keskin omuz), **Şiddet** (2–20, kabartma gücü). Değerler yanında yazar, **Sıfırla** varsayılana döner, Ayarları sabitle ile saklanır. **Arka yüzde aynı şekil ters iz (yumuşak çukur)** olarak, ön yüzde yükselen yerin tam arkasında görünür (arka baskıdan farklı olarak aynalanmaz); kutuyu açıp içine bakınca (veya düz açınımı arkadan) gofrenin ters izi okunur.
-**GOFRE** seçimi (dosyada varsa görünür): Kabartma (varsayılan) / Eskisi gibi. Ayarları sabitle ve müşteri dosyasına girer. 
+**GOFRE** seçimi (dosyada varsa görünür): Kabartma (varsayılan) / Eskisi gibi. Ayarları sabitle ve müşteri dosyasına girer. Örnek: `testler/deneme_beyaz.ai`.
 
 ## LAK spotu (kısmi UV lak)
 
 Adında `lak / uv / varnish / vernik / lacquer / laque` geçen spot kısmi UV lak sayılır: spotun yer tutucu rengi (örn. mavi) 3D'de görünmez, o alan **parlak yüzey** olur: mat zeminin üstünde pürüzsüz, ayna gibi bir film (kısmi UV lak). Lak parlak bir ofisi yansıtır: açıya göre gümüşi açık gri/beyaz (duvar, tavan, pencere) ile derin siyah (koyu nesne) arasında gider, renkli baskıda doygun ve derin görünür, üstünde beyaz parlama lekeleri olur; altındaki mat yüzey koyu ve yumuşak kalır. Kutuyu çevirdikçe parlama yerleri değişir. Kenarında lak kalınlığı kadar hafif kabartma var. Mat kartonda LAK alanı ışık yansıtarak belirgin öne çıkar.
-**LAK** seçimi (dosyada varsa görünür): Parlak yüzey (varsayılan) / Eskisi gibi. Ayarları sabitle ve müşteri dosyasına girer. 
+**LAK** seçimi (dosyada varsa görünür): Parlak yüzey (varsayılan) / Eskisi gibi. Ayarları sabitle ve müşteri dosyasına girer. Örnek: `testler/deneme_beyaz.ai`.
 
 ## Metalize karton (Karton: Metalize / gri)
 
@@ -74,7 +74,7 @@ Adında `beyaz / white / blanc / weiss / bianco` geçen spot, beyaz boya (alt ba
 - **Multiply** (varsayılan): beyaz boya kartonu örtmez, yok sayılır; baskı kartonla çarpılır (kraftta koyulaşır).
 - **Opak beyaz**: beyaz boya kartonu örter, üstündeki baskı gerçek rengiyle görünür (kraft, renkli karton, metalize).
 - **Eskisi gibi**: spotun yer tutucu rengi olduğu gibi çizilir.
-Ayarları sabitle ve müşteri dosyasına girer. 
+Ayarları sabitle ve müşteri dosyasına girer. Örnek: `testler/deneme_beyaz.ai`.
 
 ## Gölge
 
@@ -157,7 +157,7 @@ Web'de iki fark var:
    **Çift tıkla** (telefonda çift dokun): tıklanan parça bağlı olduğu kattan açılır, tekrar çift tıklayınca kapanır. Açılış, katta yazan açı kadardır (90° kat 90° açılıp düz olur, 179° askı klapesi tam açılır). Düzü aşmasını istediğin kapak için katın ayarına `acilis` değeri verilebilir (JSON).
    **📌 Konumu sabitle:** *Katlar* tablosunda her satırın sonunda (ve açınımda parçaya tıklayınca "Taban yap"ın altında).
    Parçayı açılarla yerine oturt, sonra bas: parça **o an ekranda göründüğü yerde** (kapak çift tıkla açıkken bile) kutuya göre kilitlenir (🔒). Kapak açılsa, diğer açılar değişse de o parça ve ona bağlı parçalar oynamaz
-   (ör. bir müşteri dosyasında kapağa bağlı ama tepsinin içinde duran iç duvar). Tekrar basınca çözülür. Ayarları sabitle ile kalıcı olur.
+   (ör. örnek kutu'da kapağa bağlı ama tepsinin içinde duran iç duvar). Tekrar basınca çözülür. Ayarları sabitle ile kalıcı olur.
    Kapalı bir kapağın altındaki parçaya ulaşmak için önce kapağı açmak gerekir. *Oynat* ve *Başa dön* hepsini kapatır.
 7. **Kontrol paneli** (3D'nin sağ altı), üç grup:
    - Duruş: **⟲ Devir** kutuyu sana doğru bir yüzünün üstüne devirir, **↻ Çevir** olduğu yerde 90° döndürür,
@@ -209,7 +209,7 @@ Spot adı yoksa *Çizgi grupları*'ndan şablon çizgisinin rolünü **Silindir*
 - Çevre = en − bindirme, çap = çevre / π, yükseklik = dikdörtgenin boyu. Örnek: 171 × 121 mm, bindirme 4,7 mm → Ø52,9 mm (250 ml slim).
 - Tasarım silindire sarılır, dikiş arkada kalır. Üst kapak (boyun, açma halkası) ve alt kubbe hazır gelir, alüminyum görünür.
 - Baskısız (saydam) yerlerde metal görünür.
-- **Müşteri dosyası** silindirde de çalışır: kutu döner, başlıkta çap × yükseklik yazar, katlama butonları gizlenir (teneke örneği: 5,5 MB).
+- **Müşteri dosyası** silindirde de çalışır: kutu döner, başlıkta çap × yükseklik yazar, katlama butonları gizlenir (örnek silindir: 5,5 MB).
 
 ## Sınırlar
 

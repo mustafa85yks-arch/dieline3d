@@ -65,6 +65,13 @@ tr.sel td{background:#fde7d6}
 #sayfalar{position:absolute;top:8px;left:8px;z-index:5;display:flex;gap:4px}
 #sayfalar button{padding:3px 9px;font-size:12px}
 #sayfalar button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+#parcalar{position:absolute;top:36px;left:8px;z-index:5;display:flex;gap:4px}
+#parcalar button{padding:3px 9px;font-size:12px}
+#parcalar button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+#sahne{position:absolute;top:64px;left:8px;z-index:5;display:flex;gap:4px;flex-wrap:wrap;max-width:60%}
+#sahne button{padding:3px 9px;font-size:12px}
+#sahne button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+#sahne .sep{width:8px}
 #view canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
 #drop{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   color:var(--muted);font-size:15px;pointer-events:none;text-align:center;padding:20px}
@@ -176,7 +183,7 @@ tr.sel td{background:#fde7d6}
     </section>
   </div>
   <div id="right">
-    <div id="view"><div id="drop">AI / PDF dosyasını buraya bırak</div><div id="sayfalar" style="display:none"></div></div>
+    <div id="view"><div id="drop">AI / PDF dosyasını buraya bırak</div><div id="sayfalar" style="display:none"></div><div id="parcalar" style="display:none"></div><div id="sahne" style="display:none"></div></div>
     <div id="timeline">
       <button id="btnPlay" class="primary" disabled>▶ Oynat</button>
       <input id="rngT" type="range" min="0" max="1000" value="1000" disabled>
@@ -362,7 +369,7 @@ async function parsePdf(buf, sayfa = 1) {
 // Spot renk adları: pdf.js her rengi RGB'ye çevirip adı atıyor. PDF'teki Separation tanımlarını
 // ham metinden okuyup her spotun %100 tonunu pdf.js'e minik bir PDF'le yeniden çevirtiyoruz;
 // çıkan RGB, çizimdeki stroke rengiyle birebir aynı olur. Böylece renk → spot adı eşleşir.
-// Kesim ve kat spotu aynı renkte tanımlıysa (bir müşteri dosyası: BICAK = KAT = C100 Y100) pdf.js çizgileri ayıramaz. Dosyayı okurken
+// Kesim ve kat spotu aynı renkte tanımlıysa (örnek kutu: BICAK = KAT = C100 Y100) pdf.js çizgileri ayıramaz. Dosyayı okurken
 // kesim adlı spotun rengi aynı uzunlukta (xref kaymasın) kırmızıyla değiştirilir; dosyanın kendisine dokunulmaz.
 // Sadece sıkıştırılmamış tanımlar (Illustrator .ai'de öyle). Dönüş: [yeni tampon, ayrılan spot adları].
 function cakisanSpotlariAyir(buf) {
@@ -552,6 +559,17 @@ function markPerf(paths, roles) {
     for (const p of list) p.perf = true;
     n++;
   }
+  // Yapısal çentik perforasyon değildir: iki ucu da başka bir kesim/kat çizgisine değiyorsa panel sınırını kapatır
+  // (yan duvar ile kanat arasındaki 1 mm'lik kesim; yoksa duvar paneli hiç oluşmuyordu — örnek kutu kapak/taban).
+  // Gerçek perforasyon çizgisinin parçaları dışa doğru boşta biter.
+  const T2 = 0.6, yap = paths.filter(r => (roles[r.group] === 'kesim' || roles[r.group] === 'kat') && !r.perf);
+  const degiyor = (pt, self) => yap.some(r => { if (r === self) return false;
+    for (let i = 0; i + 1 < r.pts.length; i++) {
+      const a = r.pts[i], b = r.pts[i + 1], dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1e-9;
+      const t = Math.max(0, Math.min(1, ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dy) / L2));
+      if (Math.hypot(pt[0] - (a[0] + t * dx), pt[1] - (a[1] + t * dy)) <= T2) return true;
+    } return false; });
+  for (const p of paths) if (p.perf && !p.dash && !p.perfSpot && p.pts.length === 2 && degiyor(p.pts[0], p) && degiyor(p.pts[1], p)) { p.perf = false; p.yapisal = true; }
   return n + (paths.some(p => p.perfSpot && p.perf) ? 1 : 0);   // PERFORAJ spotu tek kalem sayılır
 }
 
@@ -1068,11 +1086,15 @@ function buildTree() {
   // bükülmüş parça (esnek kırımlarla bağlı şeritler) önce kendi içinden dolaşılır; dış parçalara sonra geçilir.
   // Yoksa ağaç bir mercek şeridine dıştaki düz bir kapağın üstünden ulaşır ve şerit yanlış yerde durur.
   const esnekH = hi => { const st = S.settings[hinges[hi].key]; return !!(st && st.esnek); };
-  const yay = (q, sadeceEsnek) => {
+  // çok kısa kenar (< 5 pt) köşe değmesidir, gerçek kat değil: ilk geçişte sayılmaz, yoksa köşe parçası duvarına değil
+  // tabana o değmeden bağlanıp dışarı sarkıyordu (örnek kutu kapak köşeleri). Başka yoldan ulaşılamayanlar ikinci geçişte bağlanır.
+  const kisaH = hi => Math.hypot(hinges[hi].b[0] - hinges[hi].a[0], hinges[hi].b[1] - hinges[hi].a[1]) < 5;
+  const yay = (q, sadeceEsnek, kisaYok = false) => {
     for (let k = 0; k < q.length; k++) {
       const id = q[k];
       for (const hi of nb.get(id)) {
         if (sadeceEsnek && !esnekH(hi)) continue;
+        if (kisaYok && kisaH(hi)) continue;
         const h = hinges[hi], o = h.p === id ? h.q : h.p;
         if (panels[o].depth !== -1) continue;
         panels[o].depth = panels[id].depth + 1;
@@ -1085,7 +1107,7 @@ function buildTree() {
     return q;
   };
   const ulasilan = yay([base.id], true);
-  yay(ulasilan.slice(), false);
+  yay(yay(ulasilan.slice(), false, true), false);
   // yarıklar: hiçbir kata bağlı olmayan çok küçük parçalar kesilip atılan deliklerdir, panel sayılmaz
   const maxAll = Math.max(...panels.map(p => Math.abs(p.area)));
   for (const p of panels) p.scrap = p.depth === -1 && Math.abs(p.area) < 0.02 * maxAll;
@@ -1490,7 +1512,7 @@ function drawBaseButton(p) {
   g.addEventListener('click', e => { e.stopPropagation(); setBase(p.id); selectPanel(p.id); status(`P${p.id + 1} taban yapıldı. Kutu buna göre katlanıyor.`); });
 }
 // "Konumu sabitle": operatör parçayı yerine oturtur (açılarla), sonra kilitler. Kutuya göre konumu saklanır; kapak açılsa,
-// diğer açılar değişse de oynamaz (bir müşteri dosyası P23). Ayar parçayı bağlayan katın üstünde, Ayarları sabitle ile kalıcı.
+// diğer açılar değişse de oynamaz (örnek kutu P23). Ayar parçayı bağlayan katın üstünde, Ayarları sabitle ile kalıcı.
 function drawGlueButton(p) {
   $('glueBtn')?.remove();
   if (!p || p.scrap || p.hinge == null || !S.bbox) return;
@@ -1660,7 +1682,9 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, s * op * edge);
       }` });
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), groundMat);
-  ground.rotation.x = -PI / 2; ground.position.y = -0.4;
+  // kural (operatör, 9 Eki 2026): kutu zeminden her zaman 1 mm yukarıda. Değen yüzey derinlikte zeminle çakışıp zemin rengini alıyordu.
+  const ZEMIN_Y = -1;
+  ground.rotation.x = -PI / 2; ground.position.y = ZEMIN_Y;
   scene.add(ground);
   const model = new THREE.Group();
   scene.add(model);
@@ -1826,6 +1850,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
     const w = container.clientWidth, h = container.clientHeight;
     if (!w || !h) return;
     renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+    if (sahneOn) { sahneKadraj(sahneHedef(sahneDurum)); return; }   // sahnede boyut değişince (telefon döndürme, adres çubuğu) tek parça kadrajına atlamasın
     if (D) mode === 'flat' ? viewFlat() : place(true);
   }
   new ResizeObserver(resize).observe(container);
@@ -2169,7 +2194,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
     track = null;
   }
 
-  // Konumu sabit parça (operatör, 30 Eyl 2026: bir müşteri dosyası P23 — kapağa bağlı ama gövdede duran iç duvar): operatör yerine oturtup
+  // Konumu sabit parça (operatör, 30 Eyl 2026: örnek kutu P23 — kapağa bağlı ama gövdede duran iç duvar): operatör yerine oturtup
   // sabitler; kutuya göre konumu (s.sabit: 4×4 matris, kutu gövdesine göre) saklanır. Sonra kapak açılsa, açılar değişse de oynamaz,
   // alt parçaları da onunla. Katlama animasyonunda son %20'de kendi yolundan sabit yerine yumuşakça geçer.
   const _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _p = [new THREE.Vector3(), new THREE.Vector3()],
@@ -2393,6 +2418,81 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
     return new THREE.Quaternion().setFromRotationMatrix(m).normalize();
   };
 
+  // ── SAHNE: birkaç katlanmış parça (kapak + taban + ara parça) tek sahnede ──
+  // Her parça kapalı hâlde klonlanır (geometri/malzeme paylaşılır), alt-orta noktası orijin olur. Düzen: kapalı / patlama / açık.
+  const sahneGrp = new THREE.Group(); sahneGrp.visible = false; scene.add(sahneGrp);
+  const sahneItems = new Map();   // rol -> { item, size, ters }
+  let sahneOn = false, sahneDurum = 'kapali', sahneTok = null;
+  const KUCUK = Array.from({ length: 12 }, (_, i) => 'k' + (i + 1));   // en fazla 12 küçük kutu (örnek kutu: 3 sütun × 4 sıra göz)
+  function sahneHedef(durum, elle = true) {
+    const K = sahneItems.get('kapak'), T = sahneItems.get('taban'), A = sahneItems.get('ara'), out = new Map();
+    const ks = KUCUK.filter(r => sahneItems.has(r)), k0 = ks.length ? sahneItems.get(ks[0]) : null;
+    const hb = T ? T.size.y : 0, hk = K ? K.size.y : 0, ha = A ? A.size.y : 0, hs = k0 ? k0.size.y : 0, gap = 2;
+    // küçük kutular separatörün gözlerine; yoksa yan yana dizilir
+    // separatör tabanındaki gerçek göz boşluklarından (A.goz, tabanın merkezine göre mm); yoksa ölçüyü eşit bölerek tahmin (3 sütun × 4 sıra)
+    const goz = i => A && A.goz && A.goz[i] ? [A.goz[i][0], 0, A.goz[i][1]]
+      : A ? [((i % 3) - 1) * A.size.x / 3, 0, (Math.floor(i / 3) - 1.5) * A.size.z / 4]
+          : [(i - (ks.length - 1) / 2) * (k0.size.z + 20), 0, 0];
+    // kutu k<n> n. göze oturur (n = üstündeki sayı, bulunamazsa eklenme sırası): 1 2 3 / 4 5 6 / 7 8 9 / 10 11 12
+    const kutu = (i, y) => { const g = goz(+ks[i].slice(1) - 1); out.set(ks[i], [g[0], y, g[2]]); };
+    if (T) out.set('taban', [0, 0, 0]);
+    if (durum === 'kapali') {
+      if (A) out.set('ara', [0, gap, 0]);
+      ks.forEach((_, i) => kutu(i, gap));
+      if (K) out.set('kapak', [0, hb - hk + gap, 0]);   // kapak tabanın üst kısmını örter, üst yüzü tabanın hemen üstünde
+    } else if (durum === 'patlama') {
+      const adim = 0.6 * Math.max(hk, ha, hs, 30);
+      let y = Math.max(hb, 1) + adim * 0.8;
+      if (A) { out.set('ara', [0, y, 0]); y += ha + adim; }
+      if (ks.length) { ks.forEach((_, i) => kutu(i, y)); y += hs + adim; }
+      if (K) out.set('kapak', [0, y, 0]);
+    } else {   // acik: kapak yanda yatar, ara parça ve küçük kutular tabanın içinde
+      if (A) out.set('ara', [0, gap, 0]);
+      ks.forEach((_, i) => kutu(i, gap));
+      if (K) out.set('kapak', [-((T ? T.size.x : 0) / 2 + K.size.x / 2 + 0.15 * K.size.x), 0, 0]);
+    }
+    if (elle) for (const [rol, it] of sahneItems) if (it.konum && it.konum[durum]) out.set(rol, it.konum[durum].slice());   // elle kaldırılan parça (yalnız yükseklik)
+    return out;
+  }
+  // sahne de zeminden 1 mm yukarıda (ZEMIN_Y kuralı). Eskiden zemin -0,4'teydi ve sahne ayrıca 1,5 mm kalkıyordu; artık ek kaldırma yok.
+  const SAHNE_KALDIR = 0;
+  function sahneYaz(rol, [x, y, z]) {
+    const it = sahneItems.get(rol); if (!it) return;
+    it.item.position.set(x, y + SAHNE_KALDIR + (it.ters ? it.size.y : 0), z);
+    it.item.rotation.set(0, it.donus || 0, it.ters ? PI : 0);
+  }
+  function sahneKadraj(hedef) {
+    const box = new THREE.Box3();
+    for (const [rol, [x, y, z]] of hedef) { const it = sahneItems.get(rol);
+      const yan = Math.abs(Math.sin(it.donus || 0)) > 0.5;   // yalnız ±90° dönüş en/boyu değiştirir (180° değiştirmez)
+      const sx = yan ? it.size.z : it.size.x, sz = yan ? it.size.x : it.size.z;
+      box.expandByPoint(new THREE.Vector3(x - sx / 2, y, z - sz / 2)); box.expandByPoint(new THREE.Vector3(x + sx / 2, y + it.size.y, z + sz / 2)); }
+    if (box.isEmpty()) return;
+    const c = box.getCenter(new THREE.Vector3()), r = box.getSize(new THREE.Vector3()).length() / 2;
+    const { v, h } = fovs(), dist = r / Math.sin(Math.min(v, h) / 2) * 1.05;
+    const dir = camera.position.clone().sub(controls.target).normalize();
+    lightFor(r, c); controls.target.copy(c); camera.position.copy(c).addScaledVector(dir, dist);
+    camera.near = dist / 100; camera.far = dist * 50; camera.updateProjectionMatrix(); controls.update();
+  }
+  function sahneGoster(on, durum, anindaYerles) {
+    const onceki = sahneOn; sahneOn = on && sahneItems.size > 0; sahneGrp.visible = sahneOn; model.visible = !sahneOn && !!D;
+    if (!sahneOn) { shDirty = true; return; }
+    const hedef = sahneHedef(durum), eskiDurum = sahneDurum; sahneDurum = durum;
+    // geçiş: mevcut konumlardan hedefe 700 ms
+    const bas = new Map([...sahneItems].map(([rol, e]) => [rol, [e.item.position.x, e.item.position.y - SAHNE_KALDIR - (e.ters ? e.size.y : 0), e.item.position.z]]));
+    const tok = sahneTok = {};
+    sahneKadraj(hedef);
+    if (anindaYerles || !onceki || eskiDurum === durum) { for (const [rol, h] of hedef) sahneYaz(rol, h); shDirty = true; return; }
+    const t0 = performance.now();
+    const tick = now => {
+      if (sahneTok !== tok) return;
+      const k = clamp01((now - t0) / 700), e = ease(k);
+      for (const [rol, h] of hedef) { const b = bas.get(rol) || h; sahneYaz(rol, [0, 1, 2].map(i => b[i] + (h[i] - b[i]) * e)); }
+      shDirty = true;
+      if (k < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
   // ── çift tıkla parça aç/kapa ──
   let opening = false;
   function animateOpen() {
@@ -2425,7 +2525,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
     for (let o = hit && hit.object; o; o = o.parent) if (o.userData.pid !== undefined) return pivots.find(pv => pv.pid === o.userData.pid) || null;
     return null;
   }
-  const canOpen = () => D && mode !== 'flat' && !playing;
+  const canOpen = () => D && mode !== 'flat' && !playing && !sahneOn;
   function toggleAt(x, y) {
     if (!canOpen()) return;
     let pv = pick(x, y);
@@ -2439,7 +2539,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
   const el = renderer.domElement;
   el.addEventListener('dblclick', e => { e.preventDefault(); toggleAt(e.clientX, e.clientY); });
   // dokunmatik: iki kısa dokunuş (sürükleme değil) 300 ms içinde ve yakın yerde
-  let down = null, lastTap = null;
+  let down = null, lastTap = null, secPanel = null;   // secPanel: müşterinin dokunduğu panel (yalnız onun ölçüsü)
   el.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY }; });
   // tek tık (sürükleme değil): hangi parçaya tıklandığını editöre bildir (Katlar'da satırını seçer)
   const pickPid = (x, y) => {
@@ -2452,6 +2552,12 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
   };
   el.addEventListener('pointerup', e => {
     if (!D || !down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;   // sürükleme (döndür / kaydır) seçim değil
+    if (e.button === 0 && opts.secOlcu && !sahneOn && mode !== 'flat') {   // operatör (9 Eki 2026): müşteri parça seçince yalnız o parçanın ölçüsü; tekrar ya da boş yere dokun: kalkar
+      const r = renderer.domElement.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, camera);
+      const hit = ray.intersectObject(model, true).find(i => i.object.isMesh); let pid = null;
+      for (let o = hit && hit.object; o; o = o.parent) if (o.userData.pid !== undefined) { pid = o.userData.pid; break; }
+      secPanel = pid === null || pid === secPanel ? null : pid; coSig = '';
+    }
     if (e.button === 0 && opts.onSelect) opts.onSelect(pickPid(e.clientX, e.clientY), e);
     else if (e.button === 2 && opts.onContext) opts.onContext(pickPid(e.clientX, e.clientY), e);
   });
@@ -2468,15 +2574,58 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
     if (e.buttons || e.pointerType === 'touch') return;
     hx = e.clientX; hy = e.clientY;
     if (hoverQueued) return; hoverQueued = true;
-    requestAnimationFrame(() => { hoverQueued = false; el.style.cursor = canOpen() && pick(hx, hy) ? 'pointer' : ''; });
+    requestAnimationFrame(() => { hoverQueued = false; el.style.cursor = sahneOn ? (sahneItemAt(hx, hy) ? 'grab' : '') : canOpen() && pick(hx, hy) ? 'pointer' : ''; });
   });
 
+  // sahnede parça tut-sürükle: yalnız yukarı/aşağı (parçaları ayrı görmek için); hazır konumun altına inmez, yatay kayma yok. Yükseklik düzene (kapalı/patlama/açık) özel kalır.
+  let sdrag = null, sahneSecili = null, bosDokun = null;   // sahneSecili: dokunulan parça (yalnız onun ölçüsü)
+  const secimYap = rol => { sahneSecili = rol; coSig = ''; };   // ölçü katmanı yeniden kurulsun
+  const sahneItemAt = (x, y) => {
+    const r = el.getBoundingClientRect();
+    ndc.set(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const hit = ray.intersectObject(sahneGrp, true).find(i => i.object.isMesh);
+    if (!hit) return null;
+    for (let o = hit.object; o; o = o.parent) for (const [rol, it] of sahneItems) if (it.item === o) return { rol, it, pt: hit.point.clone() };
+    return null;
+  };
+  el.addEventListener('pointerdown', e => {
+    if (!sahneOn || e.button !== 0) return;
+    const h = sahneItemAt(e.clientX, e.clientY); if (!h) { bosDokun = { x: e.clientX, y: e.clientY, id: e.pointerId }; return; }
+    e.stopImmediatePropagation(); e.preventDefault();
+    // yalnız dikey: kameraya bakan dikey düzlem; x/z hazır konumda kalır, parça hazır konumunun altına inmez
+    const cd = camera.getWorldDirection(new THREE.Vector3()); cd.y = 0; if (cd.lengthSq() < 1e-6) cd.set(0, 0, -1);
+    const nrm = cd.normalize().negate();
+    const hz = sahneHedef(sahneDurum, false).get(h.rol) || [0, 0, 0];
+    sdrag = { rol: h.rol, it: h.it, plane: new THREE.Plane().setFromNormalAndCoplanarPoint(nrm, h.pt), hz, dy: hz[1] - h.pt.y + (h.it.konum && h.it.konum[sahneDurum] ? h.it.konum[sahneDurum][1] - hz[1] : 0), id: e.pointerId, x0: e.clientX, y0: e.clientY, kaydi: false };
+    el.setPointerCapture(e.pointerId); el.style.cursor = 'grabbing'; controls.enabled = false;
+  }, true);
+  el.addEventListener('pointermove', e => {
+    if (!sdrag || e.pointerId !== sdrag.id) return;
+    if (!sdrag.kaydi && Math.hypot(e.clientX - sdrag.x0, e.clientY - sdrag.y0) < 5) return;   // dokunma titremesi sürükleme değil
+    sdrag.kaydi = true;
+    const r = el.getBoundingClientRect();
+    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const q = new THREE.Vector3(); if (!ray.ray.intersectPlane(sdrag.plane, q)) return;
+    const pos = [sdrag.hz[0], Math.max(sdrag.hz[1], q.y + sdrag.dy), sdrag.hz[2]];
+    (sdrag.it.konum = sdrag.it.konum || {})[sahneDurum] = pos;
+    sahneYaz(sdrag.rol, pos); shDirty = true;
+  }, true);
+  const sdragBitir = e => {
+    if (bosDokun && e.pointerId === bosDokun.id) { if (e.type === 'pointerup' && Math.hypot(e.clientX - bosDokun.x, e.clientY - bosDokun.y) < 5 && sahneSecili) secimYap(null); bosDokun = null; }   // boş yere dokun: seçim kalkar
+    if (!sdrag || e.pointerId !== sdrag.id) return;
+    if (!sdrag.kaydi && e.type === 'pointerup') secimYap(sahneSecili === sdrag.rol ? null : sdrag.rol);   // sürüklemeden bırak: seç / aynı parça: bırak
+    sdrag = null; controls.enabled = true; el.style.cursor = ''; shDirty = true;
+  };
+  el.addEventListener('pointerup', sdragBitir, true); el.addEventListener('pointercancel', sdragBitir, true);
   let callouts = [], coEl = null, coSig = '', coMoved = 0, coShown = false, olcuOn = false;   // uçan etiketler (aşağıda): döngü ilk karede okur
   (function loop() {
     requestAnimationFrame(loop);
     controls.update();
     // gölge: duruş değişince hızlı (az örnek), 180 ms durulunca ince (çok örnek)
-    const sg = model.visible || canGrp ? model.matrixWorld.elements.map(v => v.toFixed(2)).join() + pivots.map(p => { const q = p.pivot.quaternion; return q.x.toFixed(3) + q.y.toFixed(3) + q.z.toFixed(3) + p.pivot.position.y.toFixed(2); }).join() : '';
+    const sg = (model.visible || canGrp ? model.matrixWorld.elements.map(v => v.toFixed(2)).join() + pivots.map(p => { const q = p.pivot.quaternion; return q.x.toFixed(3) + q.y.toFixed(3) + q.z.toFixed(3) + p.pivot.position.y.toFixed(2); }).join() : '')
+      + (sahneOn ? [...sahneItems.values()].map(e => e.item.position.toArray().map(v => v.toFixed(1)).join()).join() : '');   // sahnede parça kayınca/düzen değişince ölçü gizlenir
     if (!shOn) { /* gölge kapalı: hiçbir şey çizilmez */ }
     else if (shDirty || sg !== shSig) { shSig = sg; shDirty = false; shadowPass(14); shIdle = performance.now(); shFine = false; }
     else if (!shFine && performance.now() - shIdle > 180) { shadowPass(64); shFine = true; }
@@ -2493,7 +2642,14 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
   }
   function coLayout() {
     coEl.innerHTML = '';
-    const W = container.clientWidth, H = container.clientHeight; if (!W || !H || !D) return;
+    const W = container.clientWidth, H = container.clientHeight; if (!W || !H) return;
+    if (sahneOn) {   // sahne: yalnız kutuların kapalı ölçüleri (etiketler tek parçaya özel)
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('width', W); svg.setAttribute('height', H); svg.style.cssText = 'position:absolute;inset:0;overflow:visible';
+      coEl.appendChild(svg);
+      if (sahneSecili || (olcuOn && !container.closest('.noolcu'))) sahneOlcuCiz(svg, W, H);   // seçili parça ölçü kapalıyken de görünür
+      return;
+    }
+    if (!D) return;
     const groups = new Map(); model.traverse(o => { if (o.isGroup && o.userData.pid !== undefined && !groups.has(o.userData.pid)) groups.set(o.userData.pid, o); });
     const inPoly = (p, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j];
       if ((yi > p[1]) !== (yj > p[1]) && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) c = !c; } return c; };
@@ -2545,7 +2701,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
         svg.append(ln, dot);
       }
     }
-    if (olcuOn && mode !== 'flat' && !container.closest('.noolcu')) olcuCiz(svg, W, H, scr);
+    if (mode !== 'flat' && (secPanel !== null || (olcuOn && !container.closest('.noolcu')))) olcuCiz(svg, W, H, scr);   // seçili parça ölçü kapalıyken de görünür
   }
   // ── ölçü çizgileri (operatör, 6 Eki 2026): görünen parçaların kendi kenar ölçüleri, dış hatta ──
   // Her panelin kenarları (düz ardışık parçalar birleşik) ekrana izdüşürülür; bir yanı modelin üstünde, öbür yanı boşlukta kalan kenar dış hattır.
@@ -2554,7 +2710,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
     const groups = new Map(); model.traverse(o => { if (o.isGroup && o.userData.pid !== undefined && !groups.has(o.userData.pid)) groups.set(o.userData.pid, o); });
     const meshes = []; model.traverse(o => { if (o.isMesh && o.visible) meshes.push(o); });
     const hitAt = (x, y) => { ndc.set(x / W * 2 - 1, -(y / H) * 2 + 1); ray.setFromCamera(ndc, camera); return ray.intersectObjects(meshes, false)[0] || null; };
-    const cand = [], secili = D.olcuPanel || [];
+    const cand = [], secili = secPanel !== null ? [secPanel] : (D.olcuPanel || []);
     // operatörün seçtiği parçalar: her parçanın eni ve boyu (iki yön); her yönde yalnız dış hattaki görünen kenar, yoksa o ölçü yazılmaz
     const kos = pts => { const n = pts.length, out = [], yon = (a, b) => Math.atan2(b[1] - a[1], b[0] - a[0]); let bas = 0;
       for (let k = 1; k <= n; k++) { const a = pts[bas], b = pts[k % n], c = pts[(k + 1) % n], sap = Math.abs(((yon(a, b) - yon(b, c) + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
@@ -2640,10 +2796,89 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
       svg.append(...cizgiler);
     }
   }
+  // ── sahne ölçüsü (9 Eki 2026, operatör): yalnız TEK küçük kutuda: P2'nin eni/boyu + P1'in yüksekliği (kapalı hâlin sınır kutusundan).
+  // Sıra 1 → 12 → 10 → 3 (köşe kutular): ilk görünen kutuda çizilir, aynı anda başka kutuda yok. Dış kutunun (kapak, yoksa taban) ölçüsü de kalır.
+  // Ölçü kutunun üstüne gelmez, hep boş alanda: her ölçü için dört paralel kenar denenir; çizgi, uzatma çizgileri ve etiket hiçbir parçaya değmeyene
+  // kadar dışarı itilir (16→60 px). Hiçbir aday boşta yer bulamazsa (kutular tepside, "Kapak yanda") taban/ara parça üstü serbest bırakılır, kutular ve kapak yine engel.
+  const ONDALIK = opts.ondalik || ',';
+  function sahneOlcuCiz(svg, W, H) {
+    const scr = P => { const v = P.clone().project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; };
+    const meshler = it => { const m = []; it.item.traverse(o => { if (o.isMesh && o.visible) m.push(o); }); return m; };
+    const hepsi = []; for (const it of sahneItems.values()) hepsi.push(...meshler(it));
+    const cam = camera.position, V = (x, y, z) => new THREE.Vector3(x, y, z);
+    const gizli = (P, engel = hepsi) => { const d = cam.distanceTo(P); ray.set(cam, P.clone().sub(cam).normalize()); const h = ray.intersectObjects(engel, false)[0]; return !!h && h.distance < d - Math.max(2, d * 0.004); };
+    const bosMu = engel => (x, y) => { if (x < 4 || y < 4 || x > W - 4 || y > H - 4) return false; ndc.set(x / W * 2 - 1, -(y / H) * 2 + 1); ray.setFromCamera(ndc, camera); return !ray.intersectObjects(engel, false).length; };
+    const el = (tag, at) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const k in at) e.setAttribute(k, at[k]); return e; };
+    const yaz = mm => { const r = Math.round(mm * 2) / 2; return (Number.isInteger(r) ? String(r) : r.toFixed(1).replace('.', ONDALIK)) + ' mm'; };
+    const cakisir = (r, q) => r.l < q.r && q.l < r.r && r.t < q.b && q.t < r.b;
+    const PILL = 'position:absolute;background:#fff;border:1.3px solid #1d1d1b;border-radius:999px;padding:3px 10px;font:600 12px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#1d1d1b;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,.12);transform:translate(-50%,-50%)';
+    const olc = txt => { const p = document.createElement('div'); p.style.cssText = PILL + ';left:-999px;top:0'; p.textContent = txt; coEl.appendChild(p); const r = [p.offsetWidth / 2 + 4, p.offsetHeight / 2 + 4]; p.remove(); return r; };
+    // bir kutu için yerleşim planı: [{ metin, çizgi uçları, etiket yeri }] (çizmez)
+    const planla = (it, engel, onceki = []) => {
+      const bos = bosMu(engel), bosTam = bosMu(hepsi), B = new THREE.Box3().setFromObject(it.item); if (B.isEmpty()) return [];   // çizgi ve etiket her zaman tam boşta; gevşek kural yalnız uzatma çizgilerine
+      const [ccx, ccy] = scr(B.getCenter(new THREE.Vector3()));
+      const xs = [B.min.x, B.max.x], ys = [B.min.y, B.max.y], zs = [B.min.z, B.max.z], eksen = [[], [], []];
+      for (const y of ys) for (const z of zs) eksen[0].push([V(xs[0], y, z), V(xs[1], y, z)]);
+      for (const y of ys) for (const x of xs) eksen[1].push([V(x, y, zs[0]), V(x, y, zs[1])]);
+      for (const x of xs) for (const z of zs) eksen[2].push([V(x, ys[0], z), V(x, ys[1], z)]);
+      const uzun = [xs[1] - xs[0], zs[1] - zs[0], ys[1] - ys[0]], plan = [];
+      for (let k = 0; k < 3; k++) {
+        const metin = yaz(uzun[k]), [w2, h2] = olc(metin);
+        let best = null;
+        for (const [A3, B3] of eksen[k]) {
+          if (gizli(A3.clone().lerp(B3, 0.5), engel)) continue;   // gevşek kuralda tepsiyle aynı hizadaki üst kenar gizli sayılmaz
+          const [x1, y1s] = scr(A3), [x2, y2] = scr(B3), L = Math.hypot(x2 - x1, y2 - y1s); if (L < 14) continue;
+          const ux = (x2 - x1) / L, uy = (y2 - y1s) / L, mx = (x1 + x2) / 2, my = (y1s + y2) / 2;
+          let ox = -uy, oy = ux; if (ox * (mx - ccx) + oy * (my - ccy) < 0) { ox = -ox; oy = -oy; }   // kutunun dışına doğru
+          if (!bos(mx + ox * 6, my + oy * 6)) continue;   // kenarın dış yanı dolu: siluet değil
+          for (const d of [16, 24, 34, 46, 60]) {   // uzun uzatma çizgisi okunmuyor: en fazla 60 px
+            const a = [x1 + ox * d, y1s + oy * d], b = [x2 + ox * d, y2 + oy * d], px = (a[0] + b[0]) / 2 + ox * 14, py = (a[1] + b[1]) / 2 + oy * 14;
+            const kut = { l: px - w2, r: px + w2, t: py - h2, b: py + h2 };
+            if (plan.some(q => cakisir(kut, q.kut)) || onceki.some(q => cakisir(kut, q.kut))) continue;
+            let ok = true;
+            for (let t = 0; t <= 1 && ok; t += 0.125) ok = bosTam(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t);   // ölçü çizgisi
+            for (let t = 0.2; t <= 1 && ok; t += 0.2) ok = bos(x1 + ox * (6 + (d - 6) * t), y1s + oy * (6 + (d - 6) * t)) && bos(x2 + ox * (6 + (d - 6) * t), y2 + oy * (6 + (d - 6) * t));   // uzatma çizgileri
+            for (const [qx, qy] of [[kut.l, kut.t], [kut.r, kut.t], [kut.l, kut.b], [kut.r, kut.b], [px, py]]) if (ok) ok = bosTam(qx, qy);   // etiket
+            if (!ok) continue;
+            if (!best || d < best.d || (d === best.d && L > best.L)) best = { metin, d, L, x1, y1s, x2, y2, ux, uy, ox, oy, a, b, px, py, kut };
+            break;
+          }
+        }
+        if (best) plan.push(best);
+      }
+      return plan;
+    };
+    const gevsek = []; for (const [rol, it] of sahneItems) if (rol !== 'taban' && rol !== 'ara') gevsek.push(...meshler(it));
+    const enIyi = (it, onceki) => { const p = planla(it, hepsi, onceki); if (p.length === 3) return p; const g = planla(it, gevsek, onceki); return g.length > p.length ? g : p; };
+    let ciz;
+    if (sahneSecili && sahneItems.has(sahneSecili)) ciz = enIyi(sahneItems.get(sahneSecili), []);   // operatör: parça seçilince yalnız onun ölçüsü
+    else {
+      // 1) dış kutu (kapak, yoksa taban) — operatör: dış kutuda da kalsın
+      const dis = sahneItems.get('kapak') || sahneItems.get('taban'), disPlan = dis ? planla(dis, hepsi) : [];
+      // 2) tek küçük kutu: 1, 12, 10, 3 sırasıyla üstü görünen adaylar; etiketleri dış kutununkilerle çakışmaz
+      const ks = [1, 12, 10, 3].map(n => sahneItems.get('k' + n)).filter(Boolean)
+        .filter(it => { const B = new THREE.Box3().setFromObject(it.item), c = B.getCenter(new THREE.Vector3());   // üstü ya da bir yan yüzü görünüyorsa
+          return [V(c.x, B.max.y, c.z), V(B.min.x, c.y, c.z), V(B.max.x, c.y, c.z), V(c.x, c.y, B.min.z), V(c.x, c.y, B.max.z)].some(P => !gizli(P)); });
+      // her aday için önce katı (hiçbir parçaya değmez), üçü çıkmazsa gevşek (taban/ara parça üstü serbest); en çok ölçü çıkan adaylardan sıradaki ilki
+      const kPlanlar = ks.map(it => enIyi(it, disPlan));
+      const enCok = Math.max(0, ...kPlanlar.map(p => p.length)), kPlan = kPlanlar.find(p => p.length === enCok) || [];
+      ciz = [...disPlan, ...kPlan];
+    }
+    for (const { metin, x1, y1s, x2, y2, ux, uy, ox, oy, a, b, px, py } of ciz) {
+      const tx = -uy * 5, ty = ux * 5, pill = document.createElement('div');
+      pill.style.cssText = PILL; pill.textContent = metin; pill.style.left = px + 'px'; pill.style.top = py + 'px'; coEl.appendChild(pill);
+      svg.append(
+        el('line', { x1, y1: y1s, x2: a[0] + ox * 5, y2: a[1] + oy * 5, stroke: '#1d1d1b', 'stroke-width': 0.8, 'stroke-opacity': 0.45 }),
+        el('line', { x1: x2, y1: y2, x2: b[0] + ox * 5, y2: b[1] + oy * 5, stroke: '#1d1d1b', 'stroke-width': 0.8, 'stroke-opacity': 0.45 }),
+        el('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: '#1d1d1b', 'stroke-width': 1.3 }),
+        el('line', { x1: a[0] - tx, y1: a[1] - ty, x2: a[0] + tx, y2: a[1] + ty, stroke: '#1d1d1b', 'stroke-width': 1.3 }),
+        el('line', { x1: b[0] - tx, y1: b[1] - ty, x2: b[0] + tx, y2: b[1] + ty, stroke: '#1d1d1b', 'stroke-width': 1.3 }));
+    }
+  }
   function coTick(sg) {
-    if (!callouts.length && !olcuOn) { if (coEl && coShown) { coEl.style.opacity = 0; coShown = false; } return; }
+    if (!callouts.length && !olcuOn && secPanel === null && !sahneSecili) { if (coEl && coShown) { coEl.style.opacity = 0; coShown = false; } return; }
     coEnsure();
-    const off = (!olcuOn && !!container.closest('.nocall')) || !model.visible;
+    const off = (!olcuOn && !!container.closest('.nocall')) || (!model.visible && !sahneOn);
     const r3 = v => (Math.abs(v) < 5e-4 ? 0 : v).toFixed(3);   // -0.000 / 0.000 titremesi hareket sayılmasın
     const sig = [...camera.position.toArray(), ...camera.quaternion.toArray()].map(r3).join() + String(sg).replace(/-0\.00(?!\d)/g, '0.00') + container.clientWidth + 'x' + container.clientHeight + mode + (container.closest('.noolcu') ? 'n' : ''), now = performance.now();
     if (sig !== coSig || off) { coSig = sig; coMoved = now; if (coShown) { coEl.style.opacity = 0; coShown = false; } return; }
@@ -2701,7 +2936,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
   mkGrp([
     ['+', LB.zin, () => zoomBy(0.8)],
     ['−', LB.zout, () => zoomBy(1.25)],
-    ['⤢', LB.fit, () => { if (!D) return; setDragMode('orbit'); mode === 'flat' ? viewFlat() : place(true); }],
+    ['⤢', LB.fit, () => { if (sahneOn) { setDragMode('orbit'); sahneKadraj(sahneHedef(sahneDurum)); return; } if (!D) return; setDragMode('orbit'); mode === 'flat' ? viewFlat() : place(true); }],
   ]);
 
   ctl.style.display = 'none';   // dosya yüklenince görünür
@@ -2713,6 +2948,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
     get t() { return t; },
     get mode() { return mode; },
     load(data) {
+      secPanel = null;   // yeni ürün: önceki seçim gitsin
       model.visible = !canGrp;
       D = data; if (data.slit === false) { D.slitAll = D.lines.slit || []; D.lines.slit = []; }
       card = data.card || card; ctl.style.display = ''; foilColor = data.foilColor || null;
@@ -2804,7 +3040,8 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
       if (!D) return; const b = baseOrient(); toClosed();
       turnTo(snapQ(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), PI / 2).multiply(b)), onEnd);
     },
-    resetOrient(onEnd) { if (!D) return; toClosed(); closeAll(false); turnTo(orientHome.clone(), onEnd); },
+    resetOrient(onEnd) { if (sahneOn) { sahneKadraj(sahneHedef(sahneDurum)); return; }   // sahnede: tek parça kadrajına değil sahneye dön
+      if (!D) return; toClosed(); closeAll(false); turnTo(orientHome.clone(), onEnd); },
     get orient() { return orient.toArray().map(v => +v.toFixed(6)); },
     // kapalı kutuda (duruş uygulanmadan) her panelin baskılı yüzünün baktığı yön
     faceNormals() {
@@ -2852,7 +3089,7 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
       for (const m of [govde, baski, halka, dil]) { m.castShadow = true; m.receiveShadow = false; }
       scene.add(canGrp);
       const target = new THREE.Vector3(0, top / 2, 0), R = Math.max(top / 2, r) * 1.15;
-      lightFor(R, target); ground.position.y = -0.2;
+      lightFor(R, target); ground.position.y = ZEMIN_Y;
       controls.target.copy(target);
       const dist = R / Math.sin(fovs().v / 2) * 1.05;
       camera.position.copy(target).addScaledVector(kamYon.clone().normalize(), dist);
@@ -2864,6 +3101,43 @@ function createViewer(THREE, OrbitControls, container, opts = {}) {
       model.updateMatrixWorld(true);
       return _m1.copy(model.matrixWorld).invert().multiply(pv.pivot.matrixWorld).toArray().map(v => +v.toFixed(4));
     },
+    // sahneye ekle: şu an katlı kapalı duran kutu klonlanır. ters = 180° çevrilir (kapak: açık yüzü aşağı)
+    sahneAl(rol, ters, donus) {
+      if (!D) return false;
+      toClosed(); place(false); model.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(model), sz = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+      const inner = model.clone(true); inner.visible = true;
+      inner.position.set(model.position.x - c.x, model.position.y - box.min.y, model.position.z - c.z);
+      // yalnız kök görünür olur: alt nesnelerin (kenar çizgileri, bıçak izi, yardımcı katmanlar) kendi görünürlüğü korunur
+      // klon malzemeyi/dokuyu paylaşmasın: görüntüleyici aynı boydaki parçalarda tek doku tuvalini yeniden boyar (6 küçük kutu hep son parçanın baskısını gösteriyordu).
+      // Her parçanın malzemesi ve dokuları kendi kopyası olur; sahne ortamı (envMap) ortak kalır.
+      const tKopya = new Map();
+      const texKopya = t => {
+        if (tKopya.has(t)) return tKopya.get(t);
+        const t2 = t.clone(), im = t.image;
+        // clone() kaynağı (source) orijinalle paylaşır: image atamak orijinal dokuyu da değiştirirdi → kopyaya kendi Source'u verilir
+        if (im instanceof HTMLCanvasElement) { const c = document.createElement('canvas'); c.width = im.width; c.height = im.height; c.getContext('2d').drawImage(im, 0, 0); t2.source = new THREE.Source(c); }
+        t2.needsUpdate = true; tKopya.set(t, t2); return t2;
+      };
+      inner.traverse(o => {
+        if (!o.isMesh || !o.material) return;
+        const ms = Array.isArray(o.material) ? o.material : [o.material];
+        const yeni = ms.map(m => { const m2 = m.clone(); for (const k of Object.keys(m2)) { const t = m2[k]; if (k !== 'envMap' && t && t.isTexture && t.image) m2[k] = texKopya(t); } return m2; });
+        o.material = Array.isArray(o.material) ? yeni : yeni[0];
+      });
+      const item = new THREE.Group(); item.add(inner);
+      const eski = sahneItems.get(rol); if (eski) sahneGrp.remove(eski.item);
+      sahneGrp.add(item); sahneItems.set(rol, { item, size: sz, ters: !!ters, donus: donus || 0 });
+      sahneGoster(sahneOn, sahneDurum, true);
+      return sz.toArray().map(v => +v.toFixed(1));
+    },
+    sahneGoz(rol, liste) { const e = sahneItems.get(rol); if (!e) return; e.goz = liste; sahneGoster(sahneOn, sahneDurum, true); },
+    sahneKaldir(rol) { const e = sahneItems.get(rol); if (!e) return; sahneGrp.remove(e.item); sahneItems.delete(rol); sahneGoster(sahneOn, sahneDurum, true); },
+    sahneTers(rol, v) { const e = sahneItems.get(rol); if (!e) return; e.ters = !!v; sahneGoster(sahneOn, sahneDurum, true); },
+    sahneVar() { return [...sahneItems].map(([rol, e]) => ({ rol, ters: e.ters, donus: e.donus || 0, goz: e.goz || null, boyut: e.size.toArray().map(v => +v.toFixed(1)) })); },
+    sahneGoster(on, durum) { sahneGoster(on, durum || sahneDurum, false); },
+    get sahneAcik() { return sahneOn; },
+    sahneDuzenSifirla() { for (const it of sahneItems.values()) it.konum = null; sahneGoster(sahneOn, sahneDurum, true); },
     _debug() { return { texCanvas, bumpCanvas, D, overlay, texture, model, track, pivots }; },
     closedSize() { if (D && (!track || trackSig !== sig())) { computeTrack(); place(mode !== 'flat'); } return track && track.closedSize; },
   };
@@ -2891,14 +3165,18 @@ async function renderArt(isStale) {
   // BEYAZ boya: ana baskıdan çıkarılır, ayrı maske olarak beyaz mürekkep gibi karton üstüne çizilir
   // BEYAZ'ın tonları (tint) beyazdan spotun %100 rengine doğru çizgi üstündedir; hepsi BEYAZ sayılır
   const beyazBase = [...(S.spots || new Map())].filter(([, n]) => n.some(x => BEYAZ_RE.test(x))).map(([h]) => h);
-  const beyazHex = { has: st => S.beyaz !== 'yok' && isSpotTint(st, beyazBase), get size() { return S.beyaz !== 'yok' && beyazBase.length ? 1 : 0; } };
+  // baskı spotunun rengi (altın boya #ffe3a9 gibi) BEYAZ/LAK/GOFRE çizgisine toleransla düşebiliyor: adı dekor olmayan
+  // spot rengi hiçbir dekor kanala sayılmaz (yoksa ana baskıdan silinir, BEYAZ maskesinde kalır)
+  const dekorAd = x => BEYAZ_RE.test(x) || LAK_RE.test(x) || GOFRE_RE.test(x) || FOIL_RE.test(x) || PROVA_RE.test(x);
+  const baskiHex = new Set([...(S.spots || new Map())].filter(([, n]) => n.some(x => !dekorAd(x))).map(([h]) => h));
+  const beyazHex = { has: st => S.beyaz !== 'yok' && isSpotTint(st, beyazBase) && !baskiHex.has(st), get size() { return S.beyaz !== 'yok' && beyazBase.length ? 1 : 0; } };
   // LAK: ana baskıdan çıkarılır, maske olarak parlaklık haritasına gider
   const lakBase = [...(S.spots || new Map())].filter(([, n]) => n.some(x => LAK_RE.test(x))).map(([h]) => h);
   const gofreBase = [...(S.spots || new Map())].filter(([, n]) => n.some(x => GOFRE_RE.test(x))).map(([h]) => h);
   S.hasGofre = gofreBase.length > 0;
-  const gofreHex = { has: st => S.gofre !== 'yok' && isSpotTint(st, gofreBase), get size() { return S.gofre !== 'yok' && gofreBase.length ? 1 : 0; } };
+  const gofreHex = { has: st => S.gofre !== 'yok' && isSpotTint(st, gofreBase) && !baskiHex.has(st), get size() { return S.gofre !== 'yok' && gofreBase.length ? 1 : 0; } };
   S.hasLak = lakBase.length > 0;
-  const lakHex = { has: st => S.lak !== 'yok' && isSpotTint(st, lakBase), get size() { return S.lak !== 'yok' && lakBase.length ? 1 : 0; } };
+  const lakHex = { has: st => S.lak !== 'yok' && isSpotTint(st, lakBase) && !baskiHex.has(st), get size() { return S.lak !== 'yok' && lakBase.length ? 1 : 0; } };
   S.hasBeyaz = [...(S.spots || new Map())].some(([, n]) => n.some(x => BEYAZ_RE.test(x)));
   const foilNames = [...(S.spots || new Map())].filter(([h]) => foilHex.has(h)).flatMap(([, n]) => n).concat(occGroups(S.occ).filter(([id]) => foilLayers.includes(id)).map(([, g]) => g.name));
   // sadece adı dieline olduğunu söyleyen katmanları gizle; "Layer 1" gibi ortak katmanda
@@ -2948,7 +3226,7 @@ async function renderArt(isStale) {
   const maskImgsOnly = (ctx, pred) => { const orig = ctx.drawImage; ctx.putImageData = () => {};
     ctx.drawImage = function (...a) { const st = String(this.fillStyle).toLowerCase(); if (pred(st) && looksMask(a[0], st)) return orig.apply(this, a); }; };
   // Şeffaflık grupları (Illustrator çarpma/overprint): pdf.js grup içindeki nesneleri AYRI geçici tuvallere çizip sonra ana tuvale bindirir; tek bağlama (ctx) yapılan
-  // süzgeç bunları görmezdi (bir test dosyasında: LAK 105, BEYAZ 3026 çizim ana tuvalde hiç yok). Süzgeci CanvasRenderingContext2D prototipine koyarız (sadece o geçişte).
+  // süzgeç bunları görmezdi (deneme 3.ai: LAK 105, BEYAZ 3026 çizim ana tuvalde hiç yok). Süzgeci CanvasRenderingContext2D prototipine koyarız (sadece o geçişte).
   // imgWhite: maske geçişlerinde grup tuvalleri sadece içlerinde beyazdan başka renk yoksa ana tuvale aktarılır (fotoğraf/başka baskı karışmasın), karışım normal.
   const isWhiteCanvas = (src, rawDraw) => {   // rawDraw: değiştirilmemiş drawImage (yoksa kendi çağrısı özyinelemeye girer)
     try {
@@ -3241,7 +3519,15 @@ function setFlatBtn() {
 // her yükleme/yeniden kurma bir numara alır; await'ten dönünce numara eskiyse sessizce çekilir.
 // Böylece üst üste iki dosya açılsa bile sadece sonuncusu ekrana gelir, veriler karışmaz.
 let buildId = 0, loadId = 0;
-async function rebuildGeometry() {
+// yükleme/yeniden kurma sürüyor mu: sabit ayar uygulanınca geometri ikinci kez kurulur, loadBuffer bunu beklemeden döner.
+// Sahne toplu eklerken parçanın dokusu gerçekten güncellenmeden klonlanmasın diye sahneBekle bunu bekler.
+let kurmaSayisi = 0;
+async function sahneBekle() {
+  await new Promise(r => setTimeout(r, 400));
+  for (let i = 0; i < 150; i++) { if (!kurmaSayisi) { await new Promise(r => setTimeout(r, 250)); if (!kurmaSayisi) return; } else await new Promise(r => setTimeout(r, 100)); }
+}
+async function rebuildGeometry() { kurmaSayisi++; try { return await rebuildGeometryIc(); } finally { kurmaSayisi--; } }
+async function rebuildGeometryIc() {
   const my = ++buildId, isStale = () => my !== buildId;
   const has = r => S.groups.some(g => S.roles[g.key] === r);
   if (has('silindir')) { await silindirKur(isStale); return; }
@@ -3377,9 +3663,26 @@ function refreshAll() {
 }
 
 // keep: güncellemede (dosya yeniden okunurken) korunacak o anki ayarlar
-async function loadBuffer(buf, name, keep = null, sayfa = 1) {
+// Tek sayfada birbirinden kopuk birden çok ürün (ör. kutu: kapak + taban + ara parça): çizgileri bbox değmesiyle kümeler.
+// Küçük kırıntılar (künye, logo çizgisi) parça sayılmaz. Varsayılan "hepsi" kalır; operatör parçayı sekmeden seçer.
+function parcalarBul(paths) {
+  const B = paths.map(p => { let a = 1e9, b = 1e9, c = -1e9, d = -1e9; for (const q of p.pts) { if (q[0] < a) a = q[0]; if (q[1] < b) b = q[1]; if (q[0] > c) c = q[0]; if (q[1] > d) d = q[1]; } return [a, b, c, d]; });
+  const n = paths.length, par = [...Array(n).keys()], f = i => par[i] === i ? i : (par[i] = f(par[i])), m = 6;
+  const idx = [...Array(n).keys()].sort((i, j) => B[i][0] - B[j][0]);
+  for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) {
+    const i = idx[a], j = idx[b];
+    if (B[j][0] > B[i][2] + m && B[j][0] > B[i][0] + 4000) break;
+    if (B[j][0] <= B[i][2] + m && B[j][1] <= B[i][3] + m && B[j][3] >= B[i][1] - m && B[j][2] >= B[i][0] - m) par[f(i)] = f(j);
+  }
+  const cl = new Map();
+  paths.forEach((p, i) => { const r = f(i); let c = cl.get(r); if (!c) cl.set(r, c = { set: new Set(), b: [1e9, 1e9, -1e9, -1e9] });
+    c.set.add(p); c.b = [Math.min(c.b[0], B[i][0]), Math.min(c.b[1], B[i][1]), Math.max(c.b[2], B[i][2]), Math.max(c.b[3], B[i][3])]; });
+  return [...cl.values()].filter(c => c.set.size >= 4 && c.b[2] - c.b[0] > 100 && c.b[3] - c.b[1] > 100).sort((x, y) => x.b[0] - y.b[0]);
+}
+async function loadBuffer(buf, name, keep = null, sayfa = 1, parca = 0) {
   const my = ++loadId;
   status(`${name} okunuyor…`);
+  if (viewer.sahneAcik) { viewer.sahneGoster(false); sahneUi(); }   // başka parça açılırken sahne kapanır, eklenenler kalır
   S.buf = buf.slice(0);   // pdf.js tamponu boşaltır; sayfa sekmesi değişince yeniden okumak için kopya
   try {
     const head = new TextDecoder().decode(new Uint8Array(buf.slice(0, 1024)));
@@ -3395,6 +3698,9 @@ async function loadBuffer(buf, name, keep = null, sayfa = 1) {
     S.ayrim = null; S.ayrimDurum = 'bekliyor'; S.ayrimIs = null;
     const r = await parsePdf(buf, sayfa);
     if (my !== loadId) return;   // daha yeni bir dosya açıldı
+    const pk = parcalarBul(r.paths), parcaSayisi = pk.length >= 2 ? pk.length : 0;
+    if (parca && pk[parca - 1]) r.paths = r.paths.filter(p => pk[parca - 1].set.has(p));
+    else parca = 0;
     const { groups, roles, why } = buildGroups(r.paths, spots);
     const sig = await dielineSig(r.paths, roles);   // imza dosyadaki çizgilerden: üretilen kırma çizgileri girmez
     markPerf(r.paths, roles);
@@ -3404,9 +3710,9 @@ async function loadBuffer(buf, name, keep = null, sayfa = 1) {
       roles[kirma.group.key] = 'kat'; why[kirma.group.key] = `KIRMA spotundan üretildi: ${kirma.pairs.filter(q => q.tip === 'yelpaze').length} yelpaze, ${kirma.pairs.filter(q => q.tip === 'mercek').length} mercek, ${kirma.pairs.filter(q => q.tip === 'kanat').length} kanat${kirma.altYildiz ? ', alt yıldız' : ''}`;
     }
     if (r.sayfaSayisi === 2) { if (S.onArka === undefined || !keep) S.onArka = true; } else S.onArka = false;
-    Object.assign(S, { name, sig, kirma, autoRoles: { ...roles }, pinned: null, pdf: r.pdf, page: r.page, sayfa: Math.min(sayfa, r.sayfaSayisi), sayfaSayisi: r.sayfaSayisi, occ: r.occ, paths: r.paths, groups, roles, why, spots, baseId: null, baseManual: false, settings: {}, orient: null, autoOrient: null, orientChecked: false, selHinge: null, varak: null, foil: null, layers: {} });
+    Object.assign(S, { name, sig, kirma, autoRoles: { ...roles }, pinned: null, pdf: r.pdf, page: r.page, sayfa: Math.min(sayfa, r.sayfaSayisi), sayfaSayisi: r.sayfaSayisi, parca, parcaSayisi, occ: r.occ, paths: r.paths, groups, roles, why, spots, baseId: null, baseManual: false, settings: {}, orient: null, autoOrient: null, orientChecked: false, selHinge: null, varak: null, foil: null, layers: {} });
     $('drop').style.display = 'none';
-    sayfaUi();
+    sayfaUi(); parcaUi(); sahneUi();
     $('expName').value = name.replace(/\.(pdf|ai)$/i, '');
     if (!r.paths.length) {
       S.panels = []; S.hinges = []; S.bbox = null; viewer.bos(); draw2D(); drawGroups(); drawHinges();
@@ -3478,18 +3784,99 @@ async function reloadFile() {
   if (!r.ok) { status('Dosya okunamadı: taşınmış ya da silinmiş olabilir.', true); return; }
   const keep = { data: settingsData(), sig: S.sig, pinned: S.pinned };
   const path = S.path;
-  await loadBuffer(await r.arrayBuffer(), path.split('/').pop(), keep, S.sayfa || 1);
+  await loadBuffer(await r.arrayBuffer(), path.split('/').pop(), keep, S.sayfa || 1, S.parca || 0);
   S.path = path; fileUi();
 }
 $('btnReload').onclick = reloadFile;
 // çok sayfalı PDF: 3D'nin üstünde sayfa sekmeleri. Sayfa değişince o anki ayarlar (roller, açılar, karton) korunur (reloadFile gibi).
+// separatörün tabanındaki göz boşlukları: taban panelinin delikleri, merkezleri taban sınır kutusunun merkezine göre mm.
+// Sıra: önce z (sıra), sonra x (sütun). Izgara simetrik olduğundan eksen yönü/ayna önemsiz. 4+ delik yoksa null (tahmine döner).
+const SAHNE_DOKU = 1600;   // sahne dosyasında parça görselinin uzun kenarı (px): 9 parça birlikte telefonda belleğe sığsın
+function gozlerOku() {
+  const base = S.panels[S.baseId]; if (!base || !base.holes || base.holes.length < 2) return null;
+  const bb = pts => { const xs = pts.map(p => p[0] * PT2MM), ys = pts.map(p => p[1] * PT2MM); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; };
+  const pb = bb(base.pts), cx = (pb[0] + pb[2]) / 2, cy = (pb[1] + pb[3]) / 2;
+  const g = base.holes.map(h => { const b = bb(h); return [(b[0] + b[2]) / 2 - cx, (b[1] + b[3]) / 2 - cy]; });
+  g.sort((a, b) => Math.abs(a[1] - b[1]) > 5 ? a[1] - b[1] : a[0] - b[0]);
+  return g.map(q => [+q[0].toFixed(2), +q[1].toFixed(2)]);
+}
+const SAHNE_ROL = { kapak: ['Kapak', false], taban: ['Taban', false], ara: ['Ara parça', false] };
+const KUCUK_SAYI = 12;   // separatördeki göz sayısı (örnek kutu: 3 sütun × 4 sıra); viewer'daki KUCUK ile aynı olmalı
+function sahneUi() {
+  const el = $('sahne'), var_ = viewer.sahneVar(), goster = (S.parcaSayisi || 0) > 1 || var_.length;
+  el.style.display = goster ? '' : 'none'; el.innerHTML = '';
+  if (!goster) return;
+  const add = (txt, on, fn, title) => { const b = document.createElement('button'); b.textContent = txt; b.classList.toggle('on', !!on); if (title) b.title = title; b.onclick = fn; el.appendChild(b); return b; };
+  for (const [rol, [ad, ters]] of Object.entries(SAHNE_ROL)) {
+    const var1 = var_.find(v => v.rol === rol);
+    add(`${var1 ? '↻' : '＋'} ${ad}`, !!var1, () => { const sz = viewer.sahneAl(rol, ters); (S.sahneVeri = S.sahneVeri || {})[rol] = musteriVeri(SAHNE_DOKU); if (rol === 'ara') { const g = gozlerOku(); if (g) viewer.sahneGoz('ara', g); } S.sahneBoyut = S.sahneBoyut || {}; S.sahneBoyut[rol] = sz; status(`${ad} sahneye eklendi (${sz.join(' × ')} mm). ${var1 ? 'Önceki kopyanın yerine geçti.' : ''}`); sahneUi(); },
+      `Şu an açık olan parçayı (katlı, kapalı hâliyle) sahneye ${ad} olarak ekler`);
+  }
+  // küçük kutular: her biri kendi parçasından (1..12 numaralı, farklı baskı). Sıradaki boş göze eklenir; aynı parça tekrar basılırsa kendi gözünü yeniler.
+  const nk = var_.filter(v => /^k\d+$/.test(v.rol)).length;
+  // kutunun üstündeki sayı: PDF'te gerçek yazı olarak durur; açık parçanın sınırı içindeki 1–2 haneli yazı (12'li kutuda 10, 11, 12 de var)
+  const kNo = async () => {
+    try {
+      const vp = S.page.getViewport({ scale: 1 }), tc = await S.page.getTextContent(), [x0, y0, x1, y1] = S.bbox;
+      const hit = tc.items.filter(t => /^\d{1,2}$/.test(t.str.trim())).filter(t => { const [x, y] = vp.convertToViewportPoint(t.transform[4], t.transform[5]); return x >= x0 && x <= x1 && y >= y0 && y <= y1; });
+      return hit.length === 1 ? +hit[0].str.trim() : null;
+    } catch { return null; }
+  };
+  const kEkle = async () => {
+    S.kSlot = S.kSlot || {};
+    let idx = S.kSlot[S.parca];
+    if (!idx) {
+      const dolu = new Set(Object.values(S.kSlot)), no = await kNo();
+      idx = no >= 1 && no <= KUCUK_SAYI && !dolu.has(no) ? no : Array.from({ length: KUCUK_SAYI }, (_, i) => i + 1).find(i => !dolu.has(i));
+    }
+    if (!idx) { status(`Tüm ${KUCUK_SAYI} göz dolu; yenilemek için ilgili parçayı seçip tekrar bas.`, true); return null; }
+    S.kSlot[S.parca] = idx;
+    // ters çevrilmiş kutu, 180° dönük: kutu (87,5 × 72) gözün (88,5 × 74) kenarlarına paralel oturur; üstündeki sayı önden okunur
+    const sz = viewer.sahneAl('k' + idx, true, Math.PI); (S.sahneVeri = S.sahneVeri || {})['k' + idx] = musteriVeri(SAHNE_DOKU);
+    return [idx, sz];
+  };
+  add(`${nk ? '↻' : '＋'} Küçük kutu (${nk}/${KUCUK_SAYI})`, !!nk, async () => { const r = await kEkle(); if (r) status(`Parça ${S.parca}: küçük kutu ${r[0]} numaralı göze eklendi (${r[1].join(' × ')} mm).`); sahneUi(); },
+    'Şu an açık parçayı separatörün sıradaki gözüne ekler');
+  add('＋ Aynı boydaki hepsi', false, async () => {
+    // açık parçayla aynı kapalı ölçüdeki bütün parçaları (1 mm içinde) sırayla yükleyip ekler
+    const ref = viewer.closedSize(), n = S.parcaSayisi || 0, geri = S.parca; if (!ref || n < 2) return;
+    const r0 = { x: ref.x, y: ref.y, z: ref.z };
+    for (let i = 1; i <= n; i++) {
+      if (i !== S.parca) { await loadBuffer(S.buf.slice(0), S.name, null, S.sayfa || 1, i); }
+      await sahneBekle();
+      const cs = viewer.closedSize(); if (!cs || Math.abs(cs.x - r0.x) > 1 || Math.abs(cs.y - r0.y) > 1 || Math.abs(cs.z - r0.z) > 1) continue;
+      const r = await kEkle(); if (r) status(`Parça ${i} → küçük kutu ${r[0]}. göz`);
+    }
+    if (geri !== S.parca) { await loadBuffer(S.buf.slice(0), S.name, null, S.sayfa || 1, geri); await sahneBekle(); }
+    sahneUi();
+  }, 'Açık parçayla aynı ölçüdeki tüm parçaları tek tek yükleyip sıradaki gözlere ekler');
+  if (!var_.length) return;
+  el.appendChild(Object.assign(document.createElement('span'), { className: 'sep' }));
+  const acik = viewer.sahneAcik, durum = S.sahneDurum || 'kapali';
+  add('🎬 Sahne', acik, () => { viewer.sahneGoster(!acik, durum); sahneUi(); }, 'Sahneyi göster / tek parçaya dön');
+  for (const [k, ad] of [['kapali', 'Kapalı'], ['patlama', 'Patlama'], ['acik', 'Açık']])
+    add(ad, acik && durum === k, () => { S.sahneDurum = k; viewer.sahneGoster(true, k); sahneUi(); });
+  add('↺ Düzeni sıfırla', false, () => { viewer.sahneDuzenSifirla(); }, 'Elle kaldırılan parçaları hazır konumlarına indirir');
+  const ks = var_.filter(v => /^k\d+$/.test(v.rol));
+  if (ks.length) add(`Küçük ${ks[0].ters ? '⤓' : '⤒'}`, false, () => { const t = !ks[0].ters; ks.forEach(k => viewer.sahneTers(k.rol, t)); sahneUi(); }, 'Küçük kutuların hepsini birlikte ters çevir');
+  for (const v of var_.filter(v => !/^k\d+$/.test(v.rol))) add(`${v.rol === 'kapak' ? 'Kapak' : v.rol === 'taban' ? 'Taban' : 'Ara'} ${v.ters ? '⤓' : '⤒'}`, false, () => { viewer.sahneTers(v.rol, !v.ters); sahneUi(); }, 'Ters çevir (açık yüz yukarı/aşağı)');
+}
+function parcaUi() {
+  const el = $('parcalar'), n = S.parcaSayisi || 0;
+  el.style.display = n > 1 ? '' : 'none'; el.innerHTML = '';
+  if (n < 2) return;
+  const add = (txt, on, k, title) => { const b = document.createElement('button'); b.textContent = txt; b.classList.toggle('on', on); b.title = title;
+    b.onclick = () => { if (!S.buf || k === (S.parca || 0)) return; loadBuffer(S.buf.slice(0), S.name, null, S.sayfa || 1, k); }; el.appendChild(b); };
+  add('Hepsi', !S.parca, 0, 'Sayfadaki tüm çizgiler tek ürün gibi okunur (montajlı dosya)');
+  for (let i = 1; i <= n; i++) add(`Parça ${i}`, S.parca === i, i, 'Sadece bu kopuk parça: ayrı ürün gibi katlanır, kendi ayarı saklanır');
+}
 function sayfaUi() {
   const el = $('sayfalar'), n = S.sayfaSayisi || 1;
   el.style.display = n > 1 ? '' : 'none';
   el.innerHTML = '';
   if (n < 2) return;
   const go = (i, onArka) => { if (!S.buf || (i === S.sayfa && onArka === !!S.onArka)) return; S.onArka = onArka;
-    loadBuffer(S.buf.slice(0), S.name, { data: settingsData(), sig: S.sig, pinned: S.pinned }, i); };
+    loadBuffer(S.buf.slice(0), S.name, { data: settingsData(), sig: S.sig, pinned: S.pinned }, i, S.parca || 0); };
   const add = (txt, on, fn, title) => { const b = document.createElement('button'); b.textContent = txt; b.classList.toggle('on', on); if (title) b.title = title; b.onclick = fn; el.appendChild(b); return b; };
   // 2 sayfalı dosya: bizim işleyişte 1 = ön, 2 = arka (operatör, 1 Eki 2026). Kapatılırsa sayfalar ayrı gösterilir.
   if (n === 2) add('Ön / Arka', !!S.onArka, () => go(1, true), 'Sayfa 1 = ön yüz, sayfa 2 = arka yüz (karton içi)');
@@ -3990,11 +4377,11 @@ const TEXTS = {
   tr: { play: '▶ Tekrar oynat', flat: 'Açık hâli', closed: 'Kapalı hâli', die: 'Bıçak izi',
         tip: 'Devir', spin: 'Çevir', home: 'Başa dön', zin: 'Yakınlaş', zout: 'Uzaklaş',
         orbit: 'Döndür: sürükleyince etrafında dön', pan: 'Taşı: sürükleyince kaydır', fit: 'Sığdır',
-        hint: 'Sürükle: döndür · Tekerlek veya iki parmak: yakınlaştır · Çift tıkla: kapağı aç/kapat', err: 'Bu dosya 3D görüntü için WebGL gerektirir. Güncel Chrome, Safari veya Edge ile açın.' },
+        hint: 'Sürükle: döndür · Tekerlek veya iki parmak: yakınlaştır · Parçaya dokun: ölçüsü · Çift tıkla: kapağı aç/kapat', err: 'Bu dosya 3D görüntü için WebGL gerektirir. Güncel Chrome, Safari veya Edge ile açın.' },
   en: { play: '▶ Play again', flat: 'Flat view', closed: 'Folded view', die: 'Dieline',
         tip: 'Tip over', spin: 'Turn', home: 'Reset', zin: 'Zoom in', zout: 'Zoom out',
         orbit: 'Orbit: drag to look around', pan: 'Pan: drag to move the view', fit: 'Fit to screen',
-        hint: 'Drag to rotate · Scroll or pinch to zoom · Double-click: open/close a flap', err: 'This file needs WebGL for 3D. Please open it in a recent Chrome, Safari or Edge.' },
+        hint: 'Drag to rotate · Scroll or pinch to zoom · Tap a part: its dimensions · Double-click: open/close a flap', err: 'This file needs WebGL for 3D. Please open it in a recent Chrome, Safari or Edge.' },
 };
 const blobToDataURL = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); });
 const escHtml = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -4142,6 +4529,16 @@ function updateSpec() {
   if (cl !== S.coSon) { S.coSon = cl; viewer.setCallouts(cl); }
 }
 
+// müşteri dosyasına giren parça verisi (görseller veri URL'si): tek ürün dosyası da sahne dosyası da bunu kullanır
+function musteriVeri(maxDim = 0) {
+  const d = viewerData();
+  // maxDim: sahne dosyasında 9 parça birlikte yüklenir; her parçanın görselleri bu uzun kenara küçültülür (telefon belleği, dosya boyu)
+  const kucult = cv => { if (!cv || !maxDim) return cv; const w = cv.naturalWidth || cv.width, h = cv.naturalHeight || cv.height, k = Math.min(1, maxDim / Math.max(w, h)); if (k >= 1) return cv;
+    const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k)); const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(cv, 0, 0, c.width, c.height); return c; };
+  const gofre = kucult(S.gofreMask), lak = kucult(S.lakMask), beyaz = kucult(S.beyazMask), artBack = kucult(S.artBack), art = kucult(S.art), foil = kucult(S.foil);
+  return { ...d, art: undefined, home: undefined, foil: undefined, gofre: undefined, gofreUrl: gofre ? gofre.toDataURL('image/png') : null, lak: undefined, lakUrl: lak ? lak.toDataURL('image/png') : null, beyaz: undefined, beyazUrl: (S.beyaz || 'opak') === 'opak' && beyaz ? beyaz.toDataURL('image/png') : null, kraft: undefined, kraftUrl: kraftUrl(), artBack: undefined, artBackUrl: artBack ? artBack.toDataURL('image/jpeg', 0.9) : null, artUrl: art.toDataURL('image/jpeg', 0.9),
+    foilUrl: foil ? foil.toDataURL('image/jpeg', 0.85) : null };   // maske siyah-beyaz: JPEG PNG'nin ~1/6'sı
+}
 async function buildCustomerHtml(title, lang) {
   const [threeJs, orbitJs] = await Promise.all([THREE_URL, ORBIT_URL].map(async u => {
     const r = await fetch(u); if (!r.ok) throw new Error(`${u} indirilemedi`); return blobToDataURL(new Blob([await r.text()], { type: 'text/javascript' }));
@@ -4159,11 +4556,9 @@ async function buildCustomerHtml(title, lang) {
     data = { can: { D: S.silindir.D, H: S.silindir.H, artUrl: w.toDataURL('image/jpeg', 0.9), maskUrl: m.toDataURL('image/jpeg', 0.85) } };
     dims = `Ø ${S.silindir.D.toFixed(1)} × ${S.silindir.H.toFixed(1)} mm`;
   } else {
-    const d = viewerData();
     const size = viewer.closedSize();
     dims = size ? `${Math.round(size.x)} × ${Math.round(size.z)} × ${Math.round(size.y)} mm` : '';
-    data = { ...d, art: undefined, home: undefined, foil: undefined, gofre: undefined, gofreUrl: S.gofreMask ? S.gofreMask.toDataURL('image/png') : null, lak: undefined, lakUrl: S.lakMask ? S.lakMask.toDataURL('image/png') : null, beyaz: undefined, beyazUrl: (S.beyaz || 'opak') === 'opak' && S.beyazMask ? S.beyazMask.toDataURL('image/png') : null, kraft: undefined, kraftUrl: kraftUrl(), artBack: undefined, artBackUrl: S.artBack ? S.artBack.toDataURL('image/jpeg', 0.9) : null, artUrl: S.art.toDataURL('image/jpeg', 0.9),
-      foilUrl: S.foil ? S.foil.toDataURL('image/jpeg', 0.85) : null };   // maske siyah-beyaz: JPEG PNG'nin ~1/6'sı
+    data = musteriVeri();
   }
   if (KUNYE_ACIK && !silindir && S.specOn !== false) data.callouts = calloutList();
   if (!silindir && S.olcuOn) data.olcu = true;
@@ -4219,7 +4614,7 @@ const data = JSON.parse($('data').textContent);
 const img = new Image(), foilImg = new Image();
 const start = () => {
   let v;
-  try { v = createViewer(THREE, OrbitControls, $('view'), { labels: T, onTurn: () => flatBtn() }); } catch (e) { $('view').style.display = 'none'; $('err').style.display = 'block'; return; }
+  try { v = createViewer(THREE, OrbitControls, $('view'), { labels: T, onTurn: () => flatBtn(), secOlcu: true }); } catch (e) { $('view').style.display = 'none'; $('err').style.display = 'block'; return; }
   data.art = img;
   v.load(data);
   if (data.callouts) v.setCallouts(data.callouts);
@@ -4265,12 +4660,119 @@ ${S_}
 </html>`;
 }
 
+// Sahne dosyası: parçalar (kapak/taban/ara parça/küçük kutu ×12) tek müşteri sayfasında; sayfa her parçayı sırayla yükleyip aynı sahneyi kurar
+// müşteri dosyasında firma logosu + telif metni: yalnız proje kökünde marka/ klasörü varsa (logo.png, metin.json {tr, en}, "{yil}" yerine yıl).
+// Paylaşılan pakette marka/ yok → dosyada hiçbir şey çıkmaz.
+async function markaAl(lang) {
+  try {
+    const [rl, rm] = await Promise.all([fetch('marka/logo.png', { cache: 'no-store' }), fetch('marka/metin.json', { cache: 'no-store' })]);
+    if (!rl.ok) return '';
+    const logo = await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = no; rl.blob().then(b => fr.readAsDataURL(b), no); });
+    const metin = rm.ok ? ((await rm.json())[lang] || '').replace('{yil}', new Date().getFullYear()) : '';
+    return `<div class="marka"><img src="${logo}" alt="">${metin ? `<small>${escHtml(metin)}</small>` : ''}</div>`;
+  } catch { return ''; }
+}
+async function buildSceneHtml(title, lang) {
+  // importmap eski iOS'ta (<16.4) yok: kütüphaneler metin olarak gömülür, açılışta blob modül olarak yüklenir (three'ye giden import blob adresine çevrilir)
+  const [threeTxt, orbitTxt] = await Promise.all([THREE_URL, ORBIT_URL].map(async u => { const r = await fetch(u); if (!r.ok) throw new Error(`${u} indirilemedi`); return r.text(); }));
+  const items = viewer.sahneVar(), veri = {};
+  const vk = rol => rol;
+  for (const it of items) { const k = vk(it.rol); if (!S.sahneVeri || !S.sahneVeri[k]) throw new Error(`Sahnedeki "${it.rol}" parçasının verisi yok: sayfa yenilendiyse parçayı yeniden ekle.`); veri[k] = S.sahneVeri[k]; }
+  const data = { items: items.map(i => ({ rol: i.rol, ters: i.ters, donus: i.donus, goz: i.goz, v: vk(i.rol) })), veri };
+  const kp = items.find(i => i.rol === 'kapak') || items[0];
+  const dims = kp ? `${Math.round(kp.boyut[0])} × ${Math.round(kp.boyut[2])} × ${Math.round(kp.boyut[1])} mm` : '';
+  const json = JSON.stringify(data).replace(/</g, '\\u003c');
+  const T = TEXTS[lang], S_ = '<' + '/script>', marka = await markaAl(lang);
+  const libsJson = JSON.stringify({ three: threeTxt, orbit: orbitTxt }).replace(/</g, '\\u003c');
+  const SC = lang === 'en'
+    ? { patlama: 'Exploded view', acik: 'Lid beside', reset: 'Reset', olcu: 'Dimensions', hint: 'Tap a part to see its dimensions · Drag a part up to see it separately · Drag empty space to rotate · Scroll or pinch to zoom' }
+    : { patlama: 'Yukarı açılım', acik: 'Kapak yanda', reset: 'Düzeni sıfırla', olcu: 'Ölçü', hint: 'Parçaya dokun: ölçüsü · Parçayı tutup yukarı kaldır, ayrı ayrı gör · Boş yerden sürükle: döndür · Tekerlek veya iki parmak: yakınlaştır' };
+  return `<!DOCTYPE html>
+<html lang="${lang}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>${escHtml(title)}</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#cfcdc6;color:#1d1d1b;font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;overflow:hidden;-webkit-user-select:none;user-select:none;touch-action:manipulation}
+body{display:flex;flex-direction:column}
+header{padding:14px 20px;background:#fff;display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
+header h1{font-size:18px;margin:0}
+header span{color:#6b6a64}
+.marka{margin-left:auto;display:flex;align-items:center;gap:12px;align-self:center}
+.marka img{height:44px;width:auto;display:block}
+.marka small{color:#6b6a64;font-size:12px;line-height:1.35;max-width:300px}
+@media (max-width:600px){.marka{margin-left:0;width:100%}.marka img{height:34px}.marka small{max-width:none;font-size:11px}}
+#view{flex:1;min-height:0;position:relative;touch-action:none}
+#view canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
+#hint{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:#1d1d1bcc;color:#fff;padding:6px 12px;border-radius:14px;font-size:13px;pointer-events:none;transition:opacity .4s;width:max-content;max-width:92%;text-align:center}
+nav{display:flex;gap:10px;justify-content:center;padding:12px;background:#fff;flex-wrap:wrap}
+nav button{font:inherit;font-size:16px;padding:10px 18px;border-radius:10px;border:1px solid #cfcdc6;background:#fff;color:#1d1d1b;cursor:pointer;min-width:120px}
+nav button:hover{border-color:#6b6a64}
+nav button.on{background:#1d1d1b;color:#fff;border-color:#1d1d1b}
+#err{display:none;padding:40px;text-align:center}
+</style>
+</head>
+<body>
+<header><h1>${escHtml(title)}</h1><span>${escHtml(dims)}</span>${marka}</header>
+<div id="view"><div id="hint">${escHtml(SC.hint)}</div></div>
+<div id="err">${escHtml(T.err)}</div>
+<nav>
+  <button id="bPatlama" class="on">${escHtml(SC.patlama)}</button>
+  <button id="bAcik">${escHtml(SC.acik)}</button>
+  <button id="bReset">${escHtml(SC.reset)}</button>
+  <button id="bOlcu" class="on">${escHtml(SC.olcu)}</button>
+</nav>
+<script type="application/json" id="data">${json}${S_}
+<script type="application/json" id="libs">${libsJson}${S_}
+<script type="module">
+(async () => {
+const libs = JSON.parse(document.getElementById('libs').textContent);
+const blobUrl = t => URL.createObjectURL(new Blob([t], { type: 'text/javascript' }));
+const threeUrl = blobUrl(libs.three);
+const THREE = await import(threeUrl);
+const { OrbitControls } = await import(blobUrl(libs.orbit.replace(/from[^'"]{0,3}['"]three['"]/g, 'from "' + threeUrl + '"')));
+const createViewer = ${createViewer.toString()};
+const T = ${JSON.stringify(T)};
+const $ = id => document.getElementById(id);
+const data = JSON.parse($('data').textContent);
+const ld = (url, f, next) => { if (!url) return next(); const i = new Image(); i.onload = () => { f(i); next(); }; i.src = url; };
+const loadData = (d, cb) => ld(d.artUrl, i => d.art = i, () => ld(d.artBackUrl, i => d.artBack = i, () => ld(d.foilUrl, i => d.foil = i,
+  () => ld(d.gofreUrl, i => d.gofre = i, () => ld(d.lakUrl, i => d.lak = i, () => ld(d.beyazUrl, i => d.beyaz = i, () => ld(d.kraftUrl, i => d.kraft = i, cb)))))));
+let v;
+try { v = createViewer(THREE, OrbitControls, $('view'), { labels: T, ondalik: ${JSON.stringify(lang === 'en' ? '.' : ',')} }); } catch (e) { $('view').style.display = 'none'; $('err').style.display = 'block'; }
+if (v) {
+  window.__sahne = v;   // hata ayıklama
+  v.setOlcu(true);   // kutuların kapalı ölçüleri: görünüm durunca çıkar, hareket edince gizlenir
+  $('bOlcu').onclick = () => { document.body.classList.toggle('noolcu'); $('bOlcu').classList.toggle('on'); };
+  const keys = Object.keys(data.veri); let ki = 0;
+  const modes = { patlama: 'bPatlama', acik: 'bAcik' };
+  const show = m => { v.sahneGoster(true, m); for (const [k, id] of Object.entries(modes)) $(id).classList.toggle('on', k === m); };
+  for (const [k, id] of Object.entries(modes)) $(id).onclick = () => show(k);
+  $('bReset').onclick = () => v.sahneDuzenSifirla();
+  const next = () => {
+    if (ki >= keys.length) { show('patlama'); setTimeout(() => { $('hint').style.opacity = 0; }, 9000); return; }
+    const k = keys[ki++], d = data.veri[k];
+    loadData(d, () => { v.load(d); for (const it of data.items.filter(x => x.v === k)) { v.sahneAl(it.rol, it.ters, it.donus); if (it.goz) v.sahneGoz(it.rol, it.goz); }
+      // sahne kendi kopyasını aldı: kaynak görseller bırakılır (telefon belleği)
+      for (const f of ['art', 'artBack', 'foil', 'gofre', 'lak', 'beyaz', 'kraft']) d[f] = null; data.veri[k] = null; next(); });
+  };
+  next();
+}
+})();
+${S_}
+</body>
+</html>`;
+}
+
 $('btnExport').onclick = async () => {
   const title = $('expName').value.trim() || baseName();
   const btn = $('btnExport'); btn.disabled = true; status('Müşteri dosyası hazırlanıyor…');
   try {
-    const html = await buildCustomerHtml(title, $('expLang').value);
-    const file = title.replace(/[\\/:*?"<>|]+/g, '_') + '_3D.html';
+    const sahneVar = viewer.sahneVar().length >= 2;
+    const html = sahneVar ? await buildSceneHtml(title, $('expLang').value) : await buildCustomerHtml(title, $('expLang').value);
+    const file = title.replace(/[\\/:*?"<>|]+/g, '_') + (sahneVar ? '_sahne' : '_3D') + '.html';
     download(new Blob([html], { type: 'text/html' }), file);
     status(`Müşteri dosyası hazır: ${file} (${(html.length / 1048576).toFixed(1)} MB)`);
   } catch (e) {
@@ -4281,7 +4783,7 @@ $('btnExport').onclick = async () => {
 };
 
 S.kraftImg = new Image(); S.kraftImg.onload = () => viewer.setKraft(S.kraftImg); S.kraftImg.src = 'kraft_doku.jpg?v=2';
-window.__dieline = { S, parsePdf, buildTopology, loadUrl, viewer, buildCustomerHtml, viewerData };
+window.__dieline = { S, parsePdf, buildTopology, loadUrl, viewer, buildCustomerHtml, buildSceneHtml, viewerData };
 const q = new URLSearchParams(location.search).get('pdf');
 if (q) loadUrl(q);
 </script>
